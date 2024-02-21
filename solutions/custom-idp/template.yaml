@@ -1,0 +1,411 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+
+Parameters:
+  Subnets:
+    Description: VPC Subnets
+    Type: List<AWS::EC2::Subnet::Id>
+  SecurityGroups:
+    Description: Security Groups
+    Type: List<AWS::EC2::SecurityGroup::Id>
+  SecretsManagerPermissions:
+    Description: Grant Lambda execution role permission to read Secrets Manager secrets (required to use the secrets_manager module)
+    Type: String
+    AllowedValues: [true, false]
+    Default: false
+  UserNameDelimiter:
+    Description: Delimiter for user name
+    Type: String
+    Default: '@'
+    AllowedValues:
+      - '@'
+      - '$'
+      - '\\'
+      - '/'
+    AllowedPattern: '[@\\\/\-]'
+    MaxLength: 1
+    MinLength: 1
+  LogLevel:
+    Description: 'Log level to configure for Lambda authentication function. Set to DEBUG for verbose logging to be used for troubleshooting. WARNING: This may result in sensitive information being put into logs.'
+    Type: String
+    Default: 'INFO'
+    AllowedValues:
+         - INFO
+         - DEBUG
+  ProvisionApi:
+    Description: 'Provision an API Gateway REST API. Enable this if you would like AWS Transfer to use a REST-based custom IdP instead of directly invoking the Lambda function.'
+    Type: String
+    Default: 'false'
+    AllowedValues:
+      - 'true'
+      - 'false'
+  EnableTracing:
+    Description: Enable X-ray tracing on various components
+    Type: String
+    Default: 'false'
+    AllowedValues:
+    - 'true'
+    - 'false'
+  
+  UsersTableName:
+    Description: The name of an existing DynamoDB table to use for Users. If blank, a new table will be created.
+    Type: String
+    Default: ''
+
+  IdentityProvidersTableName:
+    Description: The name of an existing DynamoDB table to use for Identity Providers. If blank, a new table will be created.
+    Type: String
+    Default: ''
+
+
+
+Conditions:
+  SecretsManagerPermission: !Equals [!Ref SecretsManagerPermissions, true]
+  ApiEnabled: !Equals [!Ref ProvisionApi, true]
+  TracingEnabled: !Equals [!Ref EnableTracing, true]
+  CreateUsersTable: !Equals [!Ref UsersTableName, '']
+  CreateIdentityProvidersTable: !Equals [!Ref IdentityProvidersTableName, '']
+
+Globals:
+  Function:
+    Timeout: 15
+    MemorySize: 1024
+    Tracing:
+      Fn::If:
+      - TracingEnabled
+      - Active
+      - Ref: AWS::NoValue
+  Api:
+    TracingEnabled: true
+
+Resources:
+  IdpHandlerLayer:
+    Type: AWS::Serverless::LayerVersion
+    Properties:
+      ContentUri: src/handler_layer
+      CompatibleRuntimes:
+        - python3.7
+        - python3.8
+        - python3.9
+    Metadata:
+      BuildMethod: python3.8
+
+  IdpHandlerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/idp_handler/
+      Handler: app.lambda_handler
+      Runtime: python3.9
+      FunctionName: !Sub ${AWS::StackName}_awstransfer_idp
+      Layers:
+        - !Ref IdpHandlerLayer
+      Environment:
+        Variables:
+          USERS_TABLE: !Sub ${AWS::StackName}_users
+          IDENTITY_PROVIDERS_TABLE: !Sub ${AWS::StackName}_identity_providers
+          USER_NAME_DELIMITER: !Ref UserNameDelimiter
+          LOGLEVEL: !Ref LogLevel
+          AWS_XRAY_TRACING_NAME: !Sub ${AWS::StackName}
+      VpcConfig:
+        SubnetIds: !Ref Subnets
+        SecurityGroupIds: !Ref SecurityGroups
+      Architectures:
+      - x86_64
+
+      Policies:
+        - Version: '2012-10-17' 
+          Statement:
+            - Effect: Allow
+              Action:
+                - transfer:DescribeServer
+              Resource: 
+                - !Sub arn:${AWS::Partition}:transfer:${AWS::Region}:${AWS::AccountId}:server/*
+            - Effect: Allow
+              Action:
+                - dynamodb:GetItem
+                - dynamodb:Query
+              Resource: 
+                - !If 
+                    - CreateIdentityProvidersTable
+                    - !Sub arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${AWS::StackName}_identity_providers
+                    - !Sub arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${IdentityProvidersTableName}
+                - !If
+                    - CreateUsersTable
+                    - !Sub arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${AWS::StackName}_users
+                    - !Sub arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${UsersTableName}
+
+            - !If 
+              - SecretsManagerPermission
+              - Effect: Allow
+                Action: 
+                  - secretsmanager:GetSecretValue
+                Resource: 
+                  - !Sub arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:*
+              - !Ref AWS::NoValue
+                  
+
+  IdpHandlerFunctionPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref IdpHandlerFunction
+      Action: lambda:InvokeFunction
+      Principal: "transfer.amazonaws.com"
+      SourceAccount: !Ref AWS::AccountId
+
+  ApplicationResourceGroup:
+    Type: AWS::ResourceGroups::Group
+    Properties:
+      Name: !Sub ApplicationInsights-${AWS::StackName}_awstransfer_idp
+      ResourceQuery:
+        Type: CLOUDFORMATION_STACK_1_0
+
+  CustomIdentityProviderApi:
+    Type: AWS::ApiGateway::RestApi
+    Condition: ApiEnabled
+    Properties:
+      Name: Custom Identity Provider API for AWS Transfer
+      Description: API used for GetUserConfig requests
+      FailOnWarnings: true
+      EndpointConfiguration:
+        Types:
+        - REGIONAL
+  ApiCloudWatchLogsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - apigateway.amazonaws.com
+          Action:
+          - sts:AssumeRole
+      Policies:
+      - PolicyName: ApiGatewayLogsPolicy
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Action:
+            - logs:CreateLogGroup
+            - logs:CreateLogStream
+            - logs:DescribeLogGroups
+            - logs:DescribeLogStreams
+            - logs:FilterLogEvents
+            - logs:GetLogEvents
+            - logs:PutLogEvents
+            Resource: '*'
+
+  ApiLoggingAccount:
+    Type: AWS::ApiGateway::Account
+    Properties:
+      CloudWatchRoleArn: !Sub ${ApiCloudWatchLogsRole.Arn}
+
+  ApiStage:
+    Type: AWS::ApiGateway::Stage
+    Condition: ApiEnabled    
+    Properties:
+      StageName: prod
+      DeploymentId: !Ref ApiDeployment
+      MethodSettings:
+        - DataTraceEnabled: !If [TracingEnabled, true, false]
+          HttpMethod: "*"
+          LoggingLevel: INFO
+          ResourcePath: "/*"
+      RestApiId: !Ref CustomIdentityProviderApi
+
+  ApiDeployment:
+    Type: AWS::ApiGateway::Deployment
+    DependsOn: GetUserConfigRequest
+    Condition: ApiEnabled    
+    Properties:
+      RestApiId: !Ref CustomIdentityProviderApi        
+
+  ApiLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Condition: ApiEnabled
+    Properties:
+      Action: lambda:invokeFunction
+      FunctionName: !Ref IdpHandlerFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${CustomIdentityProviderApi}/*
+  ServersResource:
+    Type: AWS::ApiGateway::Resource
+    Condition: ApiEnabled
+    Properties:
+      RestApiId: !Ref CustomIdentityProviderApi
+      ParentId: !GetAtt CustomIdentityProviderApi.RootResourceId
+      PathPart: servers
+  ServerIdResource:
+    Type: AWS::ApiGateway::Resource
+    Condition: ApiEnabled
+    Properties:
+      RestApiId: !Ref CustomIdentityProviderApi
+      ParentId: !Ref ServersResource
+      PathPart: "{serverId}"
+  UsersResource:
+    Type: AWS::ApiGateway::Resource
+    Condition: ApiEnabled
+    Properties:
+      RestApiId: !Ref CustomIdentityProviderApi
+      ParentId: !Ref ServerIdResource
+      PathPart: users
+  UserNameResource:
+    Type: AWS::ApiGateway::Resource
+    Condition: ApiEnabled
+    Properties:
+      RestApiId: !Ref CustomIdentityProviderApi
+      ParentId: !Ref UsersResource
+      PathPart: "{username}"
+  GetUserConfigResource:
+    Type: AWS::ApiGateway::Resource
+    Condition: ApiEnabled
+    Properties:
+      RestApiId: !Ref CustomIdentityProviderApi
+      ParentId: !Ref UserNameResource
+      PathPart: config
+  GetUserConfigRequest:
+    Type: AWS::ApiGateway::Method
+    Condition: ApiEnabled
+    DependsOn: GetUserConfigResponseModel
+    Properties:
+      AuthorizationType: AWS_IAM
+      HttpMethod: GET
+      Integration:
+        Type: AWS
+        IntegrationHttpMethod: POST
+        Uri: !Sub arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${IdpHandlerFunction.Arn}/invocations
+        IntegrationResponses:
+        - StatusCode: 200
+        RequestTemplates:
+          application/json: |
+            {
+              "username": "$util.urlDecode($input.params('username'))",
+              "password": "$util.escapeJavaScript($util.base64Decode($input.params('PasswordBase64'))).replaceAll("\\'","'")",
+              "protocol": "$input.params('protocol')",
+              "serverId": "$input.params('serverId')",
+              "sourceIp": "$input.params('sourceIp')"
+            }
+      RequestParameters:
+        method.request.header.PasswordBase64: false
+        method.request.querystring.protocol: false
+        method.request.querystring.sourceIp: false
+      ResourceId: !Ref GetUserConfigResource
+      RestApiId: !Ref CustomIdentityProviderApi
+      MethodResponses:
+      - StatusCode: 200
+        ResponseModels:
+          application/json: UserConfigResponseModel
+
+  GetUserConfigResponseModel:
+    Type: AWS::ApiGateway::Model
+    Condition: ApiEnabled
+    Properties:
+      RestApiId: !Ref CustomIdentityProviderApi
+      ContentType: application/json
+      Description: API response for GetUserConfig
+      Name: UserConfigResponseModel
+      Schema:
+        "$schema": http://json-schema.org/draft-04/schema#
+        title: UserUserConfig
+        type: object
+        properties:
+          HomeDirectory:
+            type: string
+          Role:
+            type: string
+          Policy:
+            type: string
+          PublicKeys:
+            type: array
+            items:
+              type: string
+
+  TransferIdentityProviderApiRole:
+    Type: AWS::IAM::Role
+    Condition: ApiEnabled
+    Properties:
+      RoleName: !Sub ${AWS::StackName}_TransferApiRole
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service: transfer.amazonaws.com
+          Action:
+            - sts:AssumeRole
+          Condition:
+            StringEquals:
+              "aws:SourceAccount": !Sub ${AWS::AccountId}
+            ArnLike: 
+              "aws:sourceArn": !Sub "arn:${AWS::Partition}:transfer:${AWS::Region}:${AWS::AccountId}:server/*"
+      Policies:
+      - PolicyName: TransferCanInvokeThisApi
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Action:
+            - execute-api:Invoke
+            Resource: !Sub arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${CustomIdentityProviderApi}/prod/GET/*
+      - PolicyName: TransferCanReadThisApi
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Action:
+            - apigateway:GET
+            Resource: "*"
+
+  usersTable: 
+    Condition: CreateUsersTable
+    UpdateReplacePolicy: Retain
+    DeletionPolicy: Retain    
+    Type: AWS::DynamoDB::Table
+    Properties: 
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions: 
+        - AttributeName: "user"
+          AttributeType: "S"
+        - AttributeName: "identity_provider_key"
+          AttributeType: "S"
+      KeySchema: 
+        - AttributeName: "user"
+          KeyType: "HASH"
+        - AttributeName: "identity_provider_key"
+          KeyType: "RANGE"
+      TableName: !Sub ${AWS::StackName}_users
+
+  identityProvidersTable: 
+    Condition: CreateIdentityProvidersTable
+    UpdateReplacePolicy: Retain
+    DeletionPolicy: Retain
+    Type: AWS::DynamoDB::Table
+    Properties: 
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions: 
+        - AttributeName: "provider"
+          AttributeType: "S"
+      KeySchema: 
+        - AttributeName: "provider"
+          KeyType: "HASH"
+      TableName: !Sub ${AWS::StackName}_identity_providers  
+
+Outputs:
+  IdpHandlerFunction:
+    Description: IDP Handler Arn
+    Value: !GetAtt IdpHandlerFunction.Arn
+  IdpHandlerLogGroupUrl:
+    Description: Link to IdpHandler Lambda logs.
+    Value: !Sub https://${AWS::Region}.console.aws.amazon.com/cloudwatch/home?region=${AWS::Region}#logsV2:log-groups/log-group/$252Faws$252Flambda$252F${IdpHandlerFunction}
+  ApiUrl:
+    Condition: ApiEnabled
+    Description: URL to specify for an API-based AWS Transfer customer identity provider
+    Value:
+      !Sub https://${CustomIdentityProviderApi}.execute-api.${AWS::Region}.amazonaws.com/${ApiStage}
+  ApiRole:
+    Condition: ApiEnabled
+    Description: The name of the IAM role created for AWS Transfer to use when invoking the API
+    Value: !Ref TransferIdentityProviderApiRole  
