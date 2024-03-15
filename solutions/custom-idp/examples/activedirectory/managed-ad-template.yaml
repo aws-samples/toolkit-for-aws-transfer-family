@@ -35,7 +35,7 @@ Resources:
       CreateAlias: true
       VpcSettings: 
         SubnetIds: 
-          !GetAtt VpcStack.Outputs.PrivateSubnets
+          !Split [',', !GetAtt VpcStack.Outputs.PrivateSubnets ]
         VpcId: 
           !GetAtt VpcStack.Outputs.VPC
 
