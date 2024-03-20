@@ -1,6 +1,6 @@
 .DS_Store
-solutions/custom-idp/Pipfile.lock
-/solutions/custom-idp/.aws-sam
-/solutions/custom-idp/src/handler_layer
-solutions/custom-idp/samconfig*
-solutions/custom-idp/mergedAD
+**/Pipfile.lock
+**/.aws-sam
+**/custom-idp/src/handler_layer
+**/samconfig*
+**/custom-idp/mergedAD

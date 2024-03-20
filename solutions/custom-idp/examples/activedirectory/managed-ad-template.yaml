@@ -24,7 +24,7 @@ Resources:
       Properties:
         TemplateURL: ./vpc-cfn.yaml
         Parameters:
-          EnvironmentName: !Ref AWS::StackName
+          VPCName: !Ref AWS::StackName
   ManagedAD: 
     Type: AWS::DirectoryService::MicrosoftAD
     Properties: 
@@ -35,9 +35,10 @@ Resources:
       CreateAlias: true
       VpcSettings: 
         SubnetIds: 
-          !Split [',', !GetAtt VpcStack.Outputs.PrivateSubnets ]
+          - !GetAtt VpcStack.Outputs.PrivateSubnet0
+          - !GetAtt VpcStack.Outputs.PrivateSubnet1
         VpcId: 
-          !GetAtt VpcStack.Outputs.VPC
+          !GetAtt VpcStack.Outputs.VPCId
 
 Outputs:
   DirectoryID:
@@ -54,10 +55,14 @@ Outputs:
     Value: !GetAtt ManagedAD.Alias
   VpcId:
     Description: Vpc Id
-    Value: !GetAtt VpcStack.Outputs.VPC
+    Value: !GetAtt VpcStack.Outputs.VPCId
   PrivateSubnets:
     Description: Private Subnets created
-    Value: !GetAtt VpcStack.Outputs.PrivateSubnets
+    Value: !Join [ ",", [ !GetAtt VpcStack.Outputs.PrivateSubnet0, !GetAtt VpcStack.Outputs.PrivateSubnet1 ]]
   PublicSubnets:
     Description: Public Subnets created
-    Value: !GetAtt VpcStack.Outputs.PublicSubnets
+    Value: !Join [ ",", [ !GetAtt VpcStack.Outputs.PublicSubnet0, !GetAtt VpcStack.Outputs.PublicSubnet1 ]]
+  DefaultSecurityGroup:
+    Description: Default Security Group created
+    Value: !GetAtt VpcStack.Outputs.DefaultSecurityGroup
+  

@@ -5,15 +5,17 @@ Description: >
 Parameters:
   Subnets:
     Description: VPC Subnets
-    Type: List<AWS::EC2::Subnet::Id>
+    Type: String
   SecurityGroups:
     Description: Security Groups
-    Type: List<AWS::EC2::SecurityGroup::Id>
+    Type: String
   SecretsManagerPermissions:
     Description: Grant Lambda execution role permission to read Secrets Manager secrets (required to use the secrets_manager module)
     Type: String
-    AllowedValues: [true, false]
-    Default: false
+    Default: 'false'
+    AllowedValues:
+      - 'true'
+      - 'false'
   UserNameDelimiter:
     Description: Delimiter for user name
     Type: String
@@ -106,8 +108,8 @@ Resources:
           LOGLEVEL: !Ref LogLevel
           AWS_XRAY_TRACING_NAME: !Sub ${AWS::StackName}
       VpcConfig:
-        SubnetIds: !Ref Subnets
-        SecurityGroupIds: !Ref SecurityGroups
+        SubnetIds: !Split [',', !Ref Subnets]
+        SecurityGroupIds: !Split [',', !Ref SecurityGroups]
       Architectures:
       - x86_64
 
