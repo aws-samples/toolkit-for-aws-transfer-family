@@ -106,7 +106,10 @@ def lambda_handler(event, context):
     logger.info(
         f"Parsed username and IdP: Username: {username} IDP: {identity_provider}"
     )
-
+    if username == '$':
+            raise IdpHandlerException(
+                f"Username $default$ is reserved and cannot be used."
+            )        
     # Lookup user
     if identity_provider:
         user_record = USERS_TABLE.get_item(

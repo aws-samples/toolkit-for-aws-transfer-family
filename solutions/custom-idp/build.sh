@@ -1,7 +1,7 @@
 #!/bin/sh
 set -xe
 
-cd "${0%/*}"
+#cd "${0%/*}"
 ARTIFACTS_DIR="${0%/*}/src/handler_layer"
 python3 -m pip install pipenv
 mkdir -p "$ARTIFACTS_DIR"

@@ -1,0 +1,405 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+Description: Installation template for AWS Transfer Custom IdP Solution
+
+Parameters:
+  Repo:
+    Description: The name of the repo to use for source code to build the solution. By default, the source repo is the toolkit-for-aws-transfer-family in aws-samples.
+    Type: String
+    Default: toolkit-for-aws-transfer-family
+  RepoOwner:
+    Description: The name of the repo owner. By default, this sources from aws-samples.
+    Type: String
+    Default: aws-samples
+  ProjectSubfolder:
+    Type: String
+    Default: "solutions/custom-idp"    
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: The VPC to attach the Lambda function to.
+    ConstraintDescription: Must be the VPC Id of an existing Virtual Private Cloud.    
+  Subnets:
+    Description: VPC Subnets to attach the Lambda custom IDP to. To allow the Lambda function to connect to public IdP endpoints such as Okta, ensure the subnets are configure to route internet traffic to a NAT gateway in a public subnet. If the Lambda function will reside in private subnet without internet access, ensure a DynamoDB Gateway Endpoint is configured in the VPC.
+    Type: List<AWS::EC2::Subnet::Id>
+    ConstraintDescription: Must be a list of at least one existing subnet. Subnets must reside in the same VPC.
+  SecurityGroups:
+    Description: Security Groups to attach to the Lambda. 
+    Type: List<AWS::EC2::SecurityGroup::Id>
+  SecretsManagerPermissions:
+    Description: Grant Lambda execution role permission to read Secrets Manager secrets (required to use the secrets_manager module)
+    Type: String
+    AllowedValues: [true, false]
+    Default: false
+  UserNameDelimiter:
+    Description: Delimiter for user name
+    Type: String
+    Default: '@'
+    AllowedValues:
+      - '@'
+      - '$'
+      - '\\'
+      - '/'
+    AllowedPattern: '[@\\\/\-]'
+    MaxLength: 1
+    MinLength: 1
+  LogLevel:
+    Description: 'Log level to configure for Lambda authentication function. Set to DEBUG for verbose logging to be used for troubleshooting. WARNING: This may result in sensitive information being put into logs.'
+    Type: String
+    Default: 'INFO'
+    AllowedValues:
+         - INFO
+         - DEBUG
+  ProvisionApi:
+    Description: 'Provision an API Gateway REST API. Enable this if you would like AWS Transfer to use a REST-based custom IdP instead of directly invoking the Lambda function.'
+    Type: String
+    Default: 'false'
+    AllowedValues:
+      - 'true'
+      - 'false'
+  EnableTracing:
+    Description: Enable X-ray tracing on various components
+    Type: String
+    Default: 'false'
+    AllowedValues:
+    - 'true'
+    - 'false'
+  
+  UsersTableName:
+    Description: The name of an existing DynamoDB table to use for Users. If blank, a new table will be created.
+    Type: String
+    Default: ''
+
+  IdentityProvidersTableName:
+    Description: The name of an existing DynamoDB table to use for Identity Providers. If blank, a new table will be created.
+    Type: String
+    Default: ''
+
+Rules:
+  SubnetsInVPC:
+    Assertions:
+      - Assert:
+          'Fn::EachMemberEquals':
+            - 'Fn::ValueOf':
+                - Subnets
+                - VpcId
+            - Ref: VpcId
+        AssertDescription: All subnets must in the VPC
+
+Resources:
+
+  CodePipelineServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action:
+              - sts:AssumeRole
+            Principal:
+              Service:
+                - codepipeline.amazonaws.com
+      Policies:
+        - PolicyName: CodePipelineAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - "iam:PassRole"
+                Resource: "*"
+        - PolicyName: CodePipelineCodeAndS3Bucket
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetBucketAcl
+                  - s3:GetBucketLocation
+                Resource:
+                  - !GetAtt PipelineArtifactsBucket.Arn
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:GetObjectVersion
+                  - s3:PutObject
+                Resource:
+                  Fn::Sub: ${PipelineArtifactsBucket.Arn}/*
+        - PolicyName: CodePipelineCodeBuildAndCloudformationAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - codebuild:StartBuild
+                  - codebuild:BatchGetBuilds
+                Resource:
+                  - !GetAtt CodeBuildProjectBuildDeploy.Arn
+              - Effect: Allow
+                Action:
+                  - cloudformation:CreateStack
+                  - cloudformation:DescribeStacks
+                  - cloudformation:DeleteStack
+                  - cloudformation:UpdateStack
+                  - cloudformation:CreateChangeSet
+                  - cloudformation:ExecuteChangeSet
+                  - cloudformation:DeleteChangeSet
+                  - cloudformation:DescribeChangeSet
+                  - cloudformation:SetStackPolicy
+                  - cloudformation:SetStackPolicy
+                  - cloudformation:ValidateTemplate
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${AWS::StackName}/*"
+  PipelineStackCloudFormationExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          Effect: Allow
+          Action: sts:AssumeRole
+          Principal:
+            Service: cloudformation.amazonaws.com
+      Policies:
+        - PolicyName: GrantCloudFormationFullAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: "*"
+                Resource: "*"
+
+  AWSTransferCustomIdPnCodePipelineProject:
+    Type: AWS::CodePipeline::Pipeline
+    Properties:
+      Name: !Sub ${AWS::StackName}-AWSTransferCustomIdP
+      RoleArn: !GetAtt CodePipelineServiceRole.Arn
+      ArtifactStore:
+           Type: S3 
+           Location: !Sub ${PipelineArtifactsBucket} 
+      Stages:
+        - Name: SourceStage
+          Actions:
+            - Name: SourceAction
+              ActionTypeId:
+                Category: Source
+                Owner: ThirdParty
+                Provider: GitHub
+                Version: "1"
+              OutputArtifacts:
+                - Name: SourceCodeAsZip
+              Configuration:
+                Owner: !Sub ${RepoOwner}
+                Repo: !Sub ${Repo}
+                Branch: scaffolding
+              RunOrder: 1
+        - Name: DeployProd
+          Actions:
+            - Name: DeployProd
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Provider: CodeBuild
+                Version: "1"
+              RunOrder: 1
+              Configuration:
+                ProjectName: !Ref CodeBuildProjectBuildDeploy
+              InputArtifacts:
+                - Name: SourceCodeAsZip  
+  CodeBuildServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Tags:
+        - Key: Role
+          Value: aws-sam-pipeline-codebuild-service-role
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action: sts:AssumeRole
+            Principal:
+              Service:
+                - codebuild.amazonaws.com
+      Policies:
+        - PolicyName: CodeBuildLogs
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/codebuild/*"
+        - PolicyName: CodeBuildArtifactsBucket
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:GetObjectVersion
+                  - s3:PutObject
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:s3:::${PipelineArtifactsBucket}/*"
+        - PolicyName: AssumeStagePipExecutionRoles
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: sts:AssumeRole
+                Resource: "*"
+                Condition:
+                  StringEquals:
+                    aws:ResourceTag/Role: !Sub ${AWS::StackName}-pipeline-execution-role
+  
+  CodeBuildProjectBuildDeploy:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/amazonlinux2-x86_64-standard:5.0
+        EnvironmentVariables:
+          - Name: ARTIFACTS_BUCKET
+            Value: !Ref PipelineArtifactsBucket
+          - Name: PROJECT_SUBFOLDER
+            Value: !Ref ProjectSubfolder
+          - Name: StackName
+            Type: PLAINTEXT
+            Value: !Sub ${AWS::StackName}-awstransfer-custom-idp
+          - Name: Subnets
+            Type: PLAINTEXT
+            Value: !Ref Subnets
+          - Name: SecurityGroups
+            Type: PLAINTEXT
+            Value: !Ref SecurityGroups
+          - Name: SecretsManagerPermissions
+            Type: PLAINTEXT
+            Value: !Ref SecretsManagerPermissions
+          - Name: UserNameDelimiter
+            Type: PLAINTEXT
+            Value: !Ref UserNameDelimiter
+          - Name: LogLevel
+            Type: PLAINTEXT
+            Value: !Ref LogLevel
+          - Name: ProvisionApi
+            Type: PLAINTEXT
+            Value: !Ref ProvisionApi
+          - Name: EnableTracing
+            Type: PLAINTEXT
+            Value: !Ref EnableTracing
+          - Name: UsersTableName
+            Type: PLAINTEXT
+            Value: !Ref UsersTableName
+          - Name: IdentityProvidersTableName
+            Type: PLAINTEXT
+            Value: !Ref IdentityProvidersTableName                   
+      ServiceRole: !GetAtt CodeBuildServiceRole.Arn
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec: !Sub "${ProjectSubfolder}/pipeline/buildspec_build_deploy.yml"
+
+  
+  CodeBuildRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Path: /
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - codebuild.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: !Sub ${AWS::StackName}-TEMPADMINACCESS
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Resource: '*'
+                Action: '*'
+        - PolicyName: !Sub ${AWS::StackName}-codebuild-base-policy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Resource:
+                  - !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:${AWS::StackName}-CloudWatchLogs-BuildLogGroup-Name
+                  - !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:${AWS::StackName}-CloudWatchLogs-BuildLogGroup-Name:*
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+        - PolicyName: !Sub ${AWS::StackName}-codebuild-customidp-deploy-policy
+          PolicyDocument: 
+            Version: 2012-10-17
+            Statement:
+            - Effect: Allow
+              Action: 
+                  - cloudformation:CreateStack
+                  - cloudformation:DescribeStacks
+                  - cloudformation:DeleteStack
+                  - cloudformation:UpdateStack
+                  - cloudformation:CreateChangeSet
+                  - cloudformation:ExecuteChangeSet
+                  - cloudformation:DeleteChangeSet
+                  - cloudformation:DescribeChangeSet
+                  - cloudformation:SetStackPolicy
+                  - cloudformation:SetStackPolicy
+                  - cloudformation:ValidateTemplate
+              Resource: !Sub 'arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${AWS::StackName}-awstransfer-custom-idp/*'
+            - Effect: Allow
+              Action:  
+                - iam:CreateRole
+                - iam:AttachRolePolicy 
+              Resource: 
+                - !Sub 'arn:aws:iam::*:role/${AWS::StackName}_TransferApiRole'
+                
+            - Effect: Allow
+              Action:  
+                - lambda:CreateFunction
+                - lambda:UpdateFunctionConfiguration
+              Resource: 'arn:aws:lambda:*:*:function:custom-idp-function'
+
+  PipelineArtifactsBucket:
+      Type: AWS::S3::Bucket
+      DeletionPolicy: Retain
+      UpdateReplacePolicy: Retain
+      Properties:
+        BucketName: !Sub ${AWS::StackName}-${AWS::AccountId}-${AWS::Region}-artifacts
+        VersioningConfiguration:
+          Status: Enabled
+        BucketEncryption:
+          ServerSideEncryptionConfiguration:
+            - ServerSideEncryptionByDefault:
+                SSEAlgorithm: AES256
+        
+  PipelineArtifactsBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref PipelineArtifactsBucket
+      PolicyDocument:
+        Statement:
+          - Effect: Deny
+            Action: s3:*
+            Principal: "*"
+            Resource:
+              - !Sub  "${PipelineArtifactsBucket.Arn}/*"
+              - !GetAtt PipelineArtifactsBucket.Arn
+            Condition:
+              Bool:
+                aws:SecureTransport: false
+          - Effect: Allow
+            Action: s3:*
+            Principal:
+              AWS:
+                - !GetAtt CodePipelineServiceRole.Arn
+            Resource:
+              - !Sub arn:${AWS::Partition}:s3:::${PipelineArtifactsBucket}
+              - !Sub arn:${AWS::Partition}:s3:::${PipelineArtifactsBucket}/*          
