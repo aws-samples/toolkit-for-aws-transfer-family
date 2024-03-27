@@ -3,6 +3,10 @@ AWSTemplateFormatVersion: '2010-09-09'
 Description: Installation template for AWS Transfer Custom IdP Solution
 
 Parameters:
+  CodeStarConnectionArn:
+    Description: The AWS connector to use for accessing the repo. 
+    Type: String
+    Default: ''
   Repo:
     Description: The name of the repo to use for source code to build the solution. By default, the source repo is the toolkit-for-aws-transfer-family in aws-samples.
     Type: String
@@ -84,7 +88,8 @@ Rules:
                 - VpcId
             - Ref: VpcId
         AssertDescription: All subnets must in the VPC
-
+Conditions:
+     UseConnection: !Not [!Equals [!Ref CodeStarConnectionArn, '']]
 Resources:
 
   CodePipelineServiceRole:
@@ -100,14 +105,22 @@ Resources:
               Service:
                 - codepipeline.amazonaws.com
       Policies:
-        - PolicyName: CodePipelineAccess
-          PolicyDocument:
+        # - PolicyName: CodePipelineAccess
+        #   PolicyDocument:
+        #     Version: "2012-10-17"
+        #     Statement:
+        #       - Effect: Allow
+        #         Action:
+        #           - "iam:PassRole"
+        #         Resource: "*"
+        - PolicyName: CodeStar
+          PolicyDocument: 
             Version: "2012-10-17"
-            Statement:
+            Statement: 
               - Effect: Allow
-                Action:
-                  - "iam:PassRole"
-                Resource: "*"
+                Action: 
+                  - codestar-connections:UseConnection
+                Resource: !Ref CodeStarConnectionArn
         - PolicyName: CodePipelineCodeAndS3Bucket
           PolicyDocument:
             Version: "2012-10-17"
@@ -180,19 +193,37 @@ Resources:
       Stages:
         - Name: SourceStage
           Actions:
-            - Name: SourceAction
-              ActionTypeId:
-                Category: Source
-                Owner: ThirdParty
-                Provider: GitHub
-                Version: "1"
-              OutputArtifacts:
-                - Name: SourceCodeAsZip
-              Configuration:
-                Owner: !Sub ${RepoOwner}
-                Repo: !Sub ${Repo}
-                Branch: scaffolding
-              RunOrder: 1
+          - !If
+            - UseConnection
+            - 
+                Name: SourceAction
+                ActionTypeId:
+                  Category: Source
+                  Owner: AWS
+                  Provider: CodeStarSourceConnection
+                  Version: "1"
+                OutputArtifacts:
+                  - Name: SourceCodeAsZip
+                Configuration:
+                  ConnectionArn: !Ref CodeStarConnectionArn
+                  FullRepositoryId: !Sub ${RepoOwner}/${Repo}
+                  BranchName: scaffolding
+                  OutputArtifactFormat: CODE_ZIP                
+                RunOrder: 1
+            - 
+                Name: SourceAction
+                ActionTypeId:
+                  Category: Source
+                  Owner: ThirdParty
+                  Provider: GitHub
+                  Version: "1"
+                OutputArtifacts:
+                  - Name: SourceCodeAsZip
+                Configuration:
+                  Owner: !Sub ${RepoOwner}
+                  Repo: !Sub ${Repo}
+                  Branch: scaffolding
+                RunOrder: 1
         - Name: DeployProd
           Actions:
             - Name: DeployProd
@@ -273,10 +304,10 @@ Resources:
             Value: !Sub ${AWS::StackName}-awstransfer-custom-idp
           - Name: Subnets
             Type: PLAINTEXT
-            Value: !Ref Subnets
+            Value: !Join [',', !Ref Subnets]
           - Name: SecurityGroups
             Type: PLAINTEXT
-            Value: !Ref SecurityGroups
+            Value: !Join [',', !Ref SecurityGroups]
           - Name: SecretsManagerPermissions
             Type: PLAINTEXT
             Value: !Ref SecretsManagerPermissions

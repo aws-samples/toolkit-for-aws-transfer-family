@@ -85,18 +85,17 @@ Resources:
     Properties:
       ContentUri: src/handler_layer
       CompatibleRuntimes:
-        - python3.7
-        - python3.8
-        - python3.9
+        - python3.10
+        - python3.11
     Metadata:
-      BuildMethod: python3.8
+      BuildMethod: python3.11
 
   IdpHandlerFunction:
     Type: AWS::Serverless::Function
     Properties:
       CodeUri: src/idp_handler/
       Handler: app.lambda_handler
-      Runtime: python3.9
+      Runtime: python3.11
       FunctionName: !Sub ${AWS::StackName}_awstransfer_idp
       Layers:
         - !Ref IdpHandlerLayer
