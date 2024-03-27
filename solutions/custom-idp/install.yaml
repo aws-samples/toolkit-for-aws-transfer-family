@@ -237,53 +237,7 @@ Resources:
                 ProjectName: !Ref CodeBuildProjectBuildDeploy
               InputArtifacts:
                 - Name: SourceCodeAsZip  
-  CodeBuildServiceRole:
-    Type: AWS::IAM::Role
-    Properties:
-      Tags:
-        - Key: Role
-          Value: aws-sam-pipeline-codebuild-service-role
-      AssumeRolePolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Effect: Allow
-            Action: sts:AssumeRole
-            Principal:
-              Service:
-                - codebuild.amazonaws.com
-      Policies:
-        - PolicyName: CodeBuildLogs
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - logs:CreateLogGroup
-                  - logs:CreateLogStream
-                  - logs:PutLogEvents
-                Resource:
-                  - !Sub "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/codebuild/*"
-        - PolicyName: CodeBuildArtifactsBucket
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - s3:GetObject
-                  - s3:GetObjectVersion
-                  - s3:PutObject
-                Resource:
-                  - !Sub "arn:${AWS::Partition}:s3:::${PipelineArtifactsBucket}/*"
-        - PolicyName: AssumeStagePipExecutionRoles
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action: sts:AssumeRole
-                Resource: "*"
-                Condition:
-                  StringEquals:
-                    aws:ResourceTag/Role: !Sub ${AWS::StackName}-pipeline-execution-role
+
   
   CodeBuildProjectBuildDeploy:
     Type: AWS::CodeBuild::Project
@@ -335,9 +289,10 @@ Resources:
         BuildSpec: !Sub "${ProjectSubfolder}/pipeline/buildspec_build_deploy.yml"
 
   
-  CodeBuildRole:
+  CodeBuildServiceRole:
     Type: AWS::IAM::Role
     Properties:
+      RoleName: !Sub ${AWS::StackName}-codebuild-deployment-role
       Path: /
       AssumeRolePolicyDocument:
         Statement:
@@ -355,18 +310,28 @@ Resources:
               - Effect: Allow
                 Resource: '*'
                 Action: '*'
-        - PolicyName: !Sub ${AWS::StackName}-codebuild-base-policy
+        - PolicyName: CodeBuildLogs
           PolicyDocument:
-            Version: 2012-10-17
+            Version: "2012-10-17"
             Statement:
               - Effect: Allow
-                Resource:
-                  - !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:${AWS::StackName}-CloudWatchLogs-BuildLogGroup-Name
-                  - !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:${AWS::StackName}-CloudWatchLogs-BuildLogGroup-Name:*
                 Action:
                   - logs:CreateLogGroup
                   - logs:CreateLogStream
                   - logs:PutLogEvents
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/codebuild/*"
+        - PolicyName: CodeBuildArtifactsBucket
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:GetObjectVersion
+                  - s3:PutObject
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:s3:::${PipelineArtifactsBucket}/*"
         - PolicyName: !Sub ${AWS::StackName}-codebuild-customidp-deploy-policy
           PolicyDocument: 
             Version: 2012-10-17
