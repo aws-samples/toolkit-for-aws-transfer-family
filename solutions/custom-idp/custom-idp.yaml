@@ -79,10 +79,12 @@ Globals:
   Api:
     TracingEnabled: true
 
+
 Resources:
   IdpHandlerLayer:
     Type: AWS::Serverless::LayerVersion
     Properties:
+      LayerName: !Sub ${AWS::StackName}-handler-layer
       ContentUri: src/handler_layer
       CompatibleRuntimes:
         - python3.10
@@ -96,13 +98,13 @@ Resources:
       CodeUri: src/idp_handler/
       Handler: app.lambda_handler
       Runtime: python3.11
-      FunctionName: !Sub ${AWS::StackName}_awstransfer_idp
+      FunctionName: !Sub ${AWS::StackName}-idp
       Layers:
         - !Ref IdpHandlerLayer
       Environment:
         Variables:
-          USERS_TABLE: !Sub ${AWS::StackName}_users
-          IDENTITY_PROVIDERS_TABLE: !Sub ${AWS::StackName}_identity_providers
+          USERS_TABLE: !If [CreateUsersTable, !Sub "${AWS::StackName}_users", !Ref UsersTableName]
+          IDENTITY_PROVIDERS_TABLE: !If [CreateIdentityProvidersTable, !Sub "${AWS::StackName}_identity_providers", !Ref IdentityProvidersTableName]
           USER_NAME_DELIMITER: !Ref UserNameDelimiter
           LOGLEVEL: !Ref LogLevel
           AWS_XRAY_TRACING_NAME: !Sub ${AWS::StackName}
@@ -111,7 +113,6 @@ Resources:
         SecurityGroupIds: !Ref SecurityGroups
       Architectures:
       - x86_64
-
       Policies:
         - Version: '2012-10-17' 
           Statement:
@@ -155,7 +156,7 @@ Resources:
   ApplicationResourceGroup:
     Type: AWS::ResourceGroups::Group
     Properties:
-      Name: !Sub ApplicationInsights-${AWS::StackName}_awstransfer_idp
+      Name: !Sub ApplicationInsights-${AWS::StackName}
       ResourceQuery:
         Type: CLOUDFORMATION_STACK_1_0
 
@@ -326,8 +327,8 @@ Resources:
     Type: AWS::IAM::Role
     Condition: ApiEnabled
     Properties:
-      RoleName: !Sub ${AWS::StackName}_TransferApiRole
-      AssumeRolePolicyDocument:
+      RoleName: !Sub "${AWS::StackName}_transfer-api-role"
+      AssumeRolePolicyDocument:    
         Version: '2012-10-17'
         Statement:
         - Effect: Allow

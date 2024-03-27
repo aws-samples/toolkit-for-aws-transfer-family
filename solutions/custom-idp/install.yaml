@@ -3,10 +3,6 @@ AWSTemplateFormatVersion: '2010-09-09'
 Description: Installation template for AWS Transfer Custom IdP Solution
 
 Parameters:
-  CodeStarConnectionArn:
-    Description: The AWS connector to use for accessing the repo. 
-    Type: String
-    Default: ''
   Repo:
     Description: The name of the repo to use for source code to build the solution. By default, the source repo is the toolkit-for-aws-transfer-family in aws-samples.
     Type: String
@@ -15,22 +11,27 @@ Parameters:
     Description: The name of the repo owner. By default, this sources from aws-samples.
     Type: String
     Default: aws-samples
-  ProjectSubfolder:
+  CodeStarConnectionArn:
+    Description: The ARN of the CodeStar connection to use for accessing the repository. If blank, the Github provider is used and the repo is assumed to be public. This setting is useful if the solution is forked to a private repository in GitHub for development or customization.
     Type: String
-    Default: "solutions/custom-idp"    
+    Default: ''    
+  ProjectSubfolder:
+    Description: "The path in the repo to the custom IdP solution. Default is solutions/custom-idp"
+    Type: String
+    Default: "solutions/custom-idp"
   VpcId:
     Type: AWS::EC2::VPC::Id
     Description: The VPC to attach the Lambda function to.
-    ConstraintDescription: Must be the VPC Id of an existing Virtual Private Cloud.    
+    ConstraintDescription: A VPC is required for this solution so that the custom IdP Lambda function can connect to private IdPs such as LDAP and Active Directory.
   Subnets:
-    Description: VPC Subnets to attach the Lambda custom IDP to. To allow the Lambda function to connect to public IdP endpoints such as Okta, ensure the subnets are configure to route internet traffic to a NAT gateway in a public subnet. If the Lambda function will reside in private subnet without internet access, ensure a DynamoDB Gateway Endpoint is configured in the VPC.
+    Description: A list of VPC subnets to attach the custom IdP Lambda to. To allow the Lambda function to connect to public IdP endpoints such as Okta, ensure the subnets are configure to route internet traffic to a NAT gateway in a public subnet. If the Lambda function will reside in private subnet without internet access, ensure a DynamoDB Gateway Endpoint is configured in the VPC.
     Type: List<AWS::EC2::Subnet::Id>
-    ConstraintDescription: Must be a list of at least one existing subnet. Subnets must reside in the same VPC.
+    ConstraintDescription: You must supply least one existing subnet. Subnets must reside in the same VPC.
   SecurityGroups:
     Description: Security Groups to attach to the Lambda. 
     Type: List<AWS::EC2::SecurityGroup::Id>
   SecretsManagerPermissions:
-    Description: Grant Lambda execution role permission to read Secrets Manager secrets (required to use the secrets_manager module)
+    Description: 'When set, grants the custom IdP Lambda execution role permission to read Secrets Manager secrets. Note: this is required to use the secrets_manager module, or any other IdP module that depends on Secrets Manager in the future.'
     Type: String
     AllowedValues: [true, false]
     Default: false
@@ -47,21 +48,21 @@ Parameters:
     MaxLength: 1
     MinLength: 1
   LogLevel:
-    Description: 'Log level to configure for Lambda authentication function. Set to DEBUG for verbose logging to be used for troubleshooting. WARNING: This may result in sensitive information being put into logs.'
+    Description: 'The log level to configure for Lambda authentication function. Set to DEBUG for verbose logging to be used for troubleshooting. WARNING: This may result in sensitive information being put into logs.'
     Type: String
     Default: 'INFO'
     AllowedValues:
          - INFO
          - DEBUG
   ProvisionApi:
-    Description: 'Provision an API Gateway REST API. Enable this if you would like AWS Transfer to use a REST-based custom IdP instead of directly invoking the Lambda function.'
+    Description: 'When set, provisions an API Gateway REST API. Enable this if you would like AWS Transfer to use a REST-based custom IdP instead of directly invoking the Lambda function.'
     Type: String
     Default: 'false'
     AllowedValues:
       - 'true'
       - 'false'
   EnableTracing:
-    Description: Enable X-ray tracing on various components
+    Description: When set, enables X-ray tracing on various components
     Type: String
     Default: 'false'
     AllowedValues:
@@ -77,7 +78,37 @@ Parameters:
     Description: The name of an existing DynamoDB table to use for Identity Providers. If blank, a new table will be created.
     Type: String
     Default: ''
+Metadata:
+     AWS::CloudFormation::Interface:
+      ParameterGroups:
+        - Label: 
+            default: Network Configuration
+          Parameters:
+            - VpcId
+            - Subnets 
+            - SecurityGroups 
+        - Label: 
+            default: Identity Provider Solution Settings
+          Parameters:
+            - UserNameDelimiter
+            - SecretsManagerPermissions
+            - ProvisionApi   
+            - LogLevel
+            - EnableTracing 
+        - Label: 
+            default: Existing DynamoDB Tables 
+          Parameters:
+            - UsersTableName
+            - IdentityProvidersTableName
+        - Label: 
+            default: Repository Settings 
+          Parameters:
+            - Repo
+            - RepoOwner
+            - CodeStarConnectionArn
+            - ProjectSubfolder
 
+      
 Rules:
   SubnetsInVPC:
     Assertions:
@@ -95,6 +126,8 @@ Resources:
   CodePipelineServiceRole:
     Type: AWS::IAM::Role
     Properties:
+      RoleName: !Sub ${AWS::StackName}-codepipeline-role
+      Path: /
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -105,14 +138,6 @@ Resources:
               Service:
                 - codepipeline.amazonaws.com
       Policies:
-        # - PolicyName: CodePipelineAccess
-        #   PolicyDocument:
-        #     Version: "2012-10-17"
-        #     Statement:
-        #       - Effect: Allow
-        #         Action:
-        #           - "iam:PassRole"
-        #         Resource: "*"
         - PolicyName: CodeStar
           PolicyDocument: 
             Version: "2012-10-17"
@@ -163,26 +188,9 @@ Resources:
                   - cloudformation:ValidateTemplate
                 Resource:
                   - !Sub "arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${AWS::StackName}/*"
-  PipelineStackCloudFormationExecutionRole:
-    Type: AWS::IAM::Role
-    Properties:
-      AssumeRolePolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          Effect: Allow
-          Action: sts:AssumeRole
-          Principal:
-            Service: cloudformation.amazonaws.com
-      Policies:
-        - PolicyName: GrantCloudFormationFullAccess
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action: "*"
-                Resource: "*"
 
-  AWSTransferCustomIdPnCodePipelineProject:
+
+  AWSTransferCustomIdPCodePipelineProject:
     Type: AWS::CodePipeline::Pipeline
     Properties:
       Name: !Sub ${AWS::StackName}-AWSTransferCustomIdP
@@ -208,7 +216,8 @@ Resources:
                   ConnectionArn: !Ref CodeStarConnectionArn
                   FullRepositoryId: !Sub ${RepoOwner}/${Repo}
                   BranchName: scaffolding
-                  OutputArtifactFormat: CODE_ZIP                
+                  OutputArtifactFormat: CODE_ZIP    
+                  DetectChanges: false            
                 RunOrder: 1
             - 
                 Name: SourceAction
@@ -238,57 +247,6 @@ Resources:
               InputArtifacts:
                 - Name: SourceCodeAsZip  
 
-  
-  CodeBuildProjectBuildDeploy:
-    Type: AWS::CodeBuild::Project
-    Properties:
-      Artifacts:
-        Type: CODEPIPELINE
-      Environment:
-        Type: LINUX_CONTAINER
-        ComputeType: BUILD_GENERAL1_SMALL
-        Image: aws/codebuild/amazonlinux2-x86_64-standard:5.0
-        EnvironmentVariables:
-          - Name: ARTIFACTS_BUCKET
-            Value: !Ref PipelineArtifactsBucket
-          - Name: PROJECT_SUBFOLDER
-            Value: !Ref ProjectSubfolder
-          - Name: StackName
-            Type: PLAINTEXT
-            Value: !Sub ${AWS::StackName}-awstransfer-custom-idp
-          - Name: Subnets
-            Type: PLAINTEXT
-            Value: !Join [',', !Ref Subnets]
-          - Name: SecurityGroups
-            Type: PLAINTEXT
-            Value: !Join [',', !Ref SecurityGroups]
-          - Name: SecretsManagerPermissions
-            Type: PLAINTEXT
-            Value: !Ref SecretsManagerPermissions
-          - Name: UserNameDelimiter
-            Type: PLAINTEXT
-            Value: !Ref UserNameDelimiter
-          - Name: LogLevel
-            Type: PLAINTEXT
-            Value: !Ref LogLevel
-          - Name: ProvisionApi
-            Type: PLAINTEXT
-            Value: !Ref ProvisionApi
-          - Name: EnableTracing
-            Type: PLAINTEXT
-            Value: !Ref EnableTracing
-          - Name: UsersTableName
-            Type: PLAINTEXT
-            Value: !Ref UsersTableName
-          - Name: IdentityProvidersTableName
-            Type: PLAINTEXT
-            Value: !Ref IdentityProvidersTableName                   
-      ServiceRole: !GetAtt CodeBuildServiceRole.Arn
-      Source:
-        Type: CODEPIPELINE
-        BuildSpec: !Sub "${ProjectSubfolder}/pipeline/buildspec_build_deploy.yml"
-
-  
   CodeBuildServiceRole:
     Type: AWS::IAM::Role
     Properties:
@@ -356,12 +314,103 @@ Resources:
                 - iam:AttachRolePolicy 
               Resource: 
                 - !Sub 'arn:aws:iam::*:role/${AWS::StackName}_TransferApiRole'
-                
+            - Effect: Allow
+              Action:
+                - "dynamodb:CreateTable"
+                - "dynamodb:DescribeContinuousBackups"
+                - "dynamodb:DescribeContributorInsights"
+                - "dynamodb:DescribeKinesisStreamingDestination"
+                - "dynamodb:DescribeTable"
+                - "dynamodb:DescribeTimeToLive"
+                - "dynamodb:ListTagsOfResource"
+              Resource: 
+                - !Sub arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${AWS::StackName}-awstransfer-custom-idp*
+            - Effect: Allow
+              Action:
+                - "iam:AttachRolePolicy"
+                - "iam:CreateRole"
+                - "iam:DeleteRole"
+                - "iam:UpdateRole"
+                - "iam:DetachRolePolicy"                
+                - "iam:GetRole"
+                - "iam:GetRolePolicy"
+                - "iam:ListAttachedRolePolicies"
+                - "iam:ListRolePolicies"
+                - "iam:PutRolePolicy" 
+              Resource:
+                - !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${AWS::StackName}-awstransfer-*"
+            - Effect: Allow
+              Action: 
+                - "ec2:DescribeSecurityGroups"
+                - "ec2:DescribeSubnets"
+                - "ec2:DescribeVpcs"
+                - "resource-groups:CreateGroup"
+              Resource: "*"
             - Effect: Allow
               Action:  
-                - lambda:CreateFunction
-                - lambda:UpdateFunctionConfiguration
-              Resource: 'arn:aws:lambda:*:*:function:custom-idp-function'
+                - "lambda:CreateFunction"
+                - "lambda:UpdateFunctionConfiguration"
+                - "lambda:AddPermission"
+                - "lambda:CreateFunction"
+                - "lambda:UpdateFunction"
+                - "lambda:DeleteFunction"                
+                - "lambda:GetFunction"
+                - "lambda:GetFunctionCodeSigningConfig"
+                - "lambda:GetRuntimeManagementConfig"                
+              Resource: !Sub 'arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${AWS::StackName}'
+            - Effect: Allow
+              Action: 
+                - "lambda:PublishLayerVersion"
+              Resource: !Sub 'arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:layer:${AWS::StackName}'
+
+  CodeBuildProjectBuildDeploy:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/amazonlinux2-x86_64-standard:5.0
+        EnvironmentVariables:
+          - Name: ARTIFACTS_BUCKET
+            Value: !Ref PipelineArtifactsBucket
+          - Name: PROJECT_SUBFOLDER
+            Value: !Ref ProjectSubfolder
+          - Name: StackName
+            Type: PLAINTEXT
+            Value: !Sub ${AWS::StackName}-awstransfer-custom-idp
+          - Name: Subnets
+            Type: PLAINTEXT
+            Value: !Join [',', !Ref Subnets]
+          - Name: SecurityGroups
+            Type: PLAINTEXT
+            Value: !Join [',', !Ref SecurityGroups]
+          - Name: SecretsManagerPermissions
+            Type: PLAINTEXT
+            Value: !Ref SecretsManagerPermissions
+          - Name: UserNameDelimiter
+            Type: PLAINTEXT
+            Value: !Ref UserNameDelimiter
+          - Name: LogLevel
+            Type: PLAINTEXT
+            Value: !Ref LogLevel
+          - Name: ProvisionApi
+            Type: PLAINTEXT
+            Value: !Ref ProvisionApi
+          - Name: EnableTracing
+            Type: PLAINTEXT
+            Value: !Ref EnableTracing
+          - Name: UsersTableName
+            Type: PLAINTEXT
+            Value: !Ref UsersTableName
+          - Name: IdentityProvidersTableName
+            Type: PLAINTEXT
+            Value: !Ref IdentityProvidersTableName                   
+      ServiceRole: !GetAtt CodeBuildServiceRole.Arn
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec: !Sub "${ProjectSubfolder}/pipeline/buildspec_build_deploy.yml"
 
   PipelineArtifactsBucket:
       Type: AWS::S3::Bucket
@@ -399,3 +448,8 @@ Resources:
             Resource:
               - !Sub arn:${AWS::Partition}:s3:::${PipelineArtifactsBucket}
               - !Sub arn:${AWS::Partition}:s3:::${PipelineArtifactsBucket}/*          
+Outputs:
+  Pipeline:
+    Description: CodePipeline URL
+    Value:
+      !Sub https://${AWS::Region}.console.aws.amazon.com/codesuite/codepipeline/pipelines/${AWSTransferCustomIdPCodePipelineProject}
