@@ -302,7 +302,7 @@ def lambda_handler(event, context):
             )
 
     # An extra check to make sure we've really authenticated, prevent accidental authentication. There should always be either at least 1 public key in response, or 'password' authentication should have been used.
-    if len(response_data.get("PublicKeys", [])) < 1 and event.get("password", "") == "":
+    if len(response_data.get("PublicKeys", [])) < 1 and event.get("password", "").strip() == "":
         raise IdpHandlerException(
             "PublicKeys is empty and password was not set. Check user config and authentication module logic."
         )

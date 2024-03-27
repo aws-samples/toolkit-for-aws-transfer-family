@@ -320,6 +320,7 @@ Resources:
             - Effect: Allow
               Action:
                 - "dynamodb:CreateTable"
+                - "dynamodb:DeleteTable"
                 - "dynamodb:DescribeContinuousBackups"
                 - "dynamodb:DescribeContributorInsights"
                 - "dynamodb:DescribeKinesisStreamingDestination"
@@ -368,7 +369,53 @@ Resources:
               Action: 
                 - "lambda:PublishLayerVersion"
               Resource: !Sub 'arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:layer:${AWS::StackName}-*'
-
+            - Sid: APIGATEWAY
+              Effect: Allow
+              Action:
+                - 'apigateway:DELETE'
+                - 'apigateway:PUT'
+                - 'apigateway:PATCH'
+                - 'apigateway:POST'
+                - 'apigateway:TagResource'
+                - 'apigateway:UntagResource'
+              Resource:
+                - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/apis/*/integrations*'
+                - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/apis/*/stages*'
+                - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/apis/*/authorizers*'
+                - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/apis/*/routes*'
+                - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/tags/arn%3Aaws%3Aapigateway%3A${AWS::Region}%3A%3A%2Fv2%2Fapis%2F*'
+            - Sid: APIGATEWAYMANAGEAPI
+              Effect: Allow
+              Action:
+                - 'apigateway:DELETE'
+                - 'apigateway:PUT'
+                - 'apigateway:PATCH'
+                - 'apigateway:POST'
+                - 'apigateway:GET'
+              Resource:
+                - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/apis'
+              Condition:
+                StringEquals:
+                  'apigateway:Request/ApiName': 'Custom Identity Provider API for AWS Transfer'
+            - Sid: APIGATEWAYMANAGEAPI2
+              Effect: Allow
+              Action:
+                - 'apigateway:DELETE'
+                - 'apigateway:PUT'
+                - 'apigateway:PATCH'
+                - 'apigateway:POST'
+                - 'apigateway:GET'
+              Resource:
+                - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/apis/*'
+              Condition:
+                StringEquals:
+                  'apigateway:Resource/ApiName': 'Custom Identity Provider API for AWS Transfer'
+            - Sid: APIGATEWAYGET
+              Effect: Allow
+              Action:
+                - 'apigateway:GET'
+              Resource:
+                - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/apis/*'
   CodeBuildProjectBuildDeploy:
     Type: AWS::CodeBuild::Project
     Properties:
@@ -458,4 +505,4 @@ Outputs:
   Pipeline:
     Description: CodePipeline URL
     Value:
-      !Sub https://${AWS::Region}.console.aws.amazon.com/codesuite/codepipeline/pipelines/${AWSTransferCustomIdPCodePipelineProject}
+      !Sub https://${AWS::Region}.console.aws.amazon.com/codesuite/codepipeline/pipelines/${AWSTransferCustomIdPCodePipelineProject}/view      

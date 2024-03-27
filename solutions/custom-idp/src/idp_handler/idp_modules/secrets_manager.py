@@ -82,7 +82,7 @@ def handle_auth(
                 if "PublicKeys" in keys_secret_dict:
                     keys_list = keys_secret_dict["PublicKeys"]
                     if not type(keys_list) == list:
-                        keys_dict = ast.literal_eval(keys_list)
+                        keys_list = ast.literal_eval(keys_list)
                     logger.debug(f"Keys dict: {keys_list}")
                     response_data["PublicKeys"] = keys_list
                 else:
