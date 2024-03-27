@@ -187,7 +187,7 @@ Resources:
                   - cloudformation:SetStackPolicy
                   - cloudformation:ValidateTemplate
                 Resource:
-                  - !Sub "arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${AWS::StackName}/*"
+                  - !Sub "arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${AWS::StackName}-*"
 
 
   AWSTransferCustomIdPCodePipelineProject:
@@ -259,7 +259,7 @@ Resources:
               Service:
                 - codebuild.amazonaws.com
             Action:
-              - sts:AssumeRole
+              - sts:AssumeRole            
       Policies:
         - PolicyName: CodeBuildLogs
           PolicyDocument:
@@ -300,13 +300,16 @@ Resources:
                   - cloudformation:SetStackPolicy
                   - cloudformation:SetStackPolicy
                   - cloudformation:ValidateTemplate
-              Resource: !Sub 'arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${AWS::StackName}-awstransfer-custom-idp/*'
+                  - cloudformation:DescribeStackEvents
+                  - cloudformation:GetTemplateSummary
+              Resource: 
+                - !Sub 'arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${AWS::StackName}-awstransfer-custom-idp/*'
+                - !Sub 'arn:${AWS::Partition}:cloudformation:${AWS::Region}:aws:transform/*'
             - Effect: Allow
               Action:  
-                - iam:CreateRole
-                - iam:AttachRolePolicy 
+                - resource-groups:DeleteGroup              
               Resource: 
-                - !Sub 'arn:aws:iam::*:role/${AWS::StackName}_TransferApiRole'
+                - !Sub arn:${AWS::Partition}:resource-groups:${AWS::Region}:${AWS::AccountId}:group/${AWS::StackName}*
             - Effect: Allow
               Action:
                 - "dynamodb:CreateTable"
@@ -317,21 +320,22 @@ Resources:
                 - "dynamodb:DescribeTimeToLive"
                 - "dynamodb:ListTagsOfResource"
               Resource: 
-                - !Sub arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${AWS::StackName}-awstransfer-custom-idp*
+                - !Sub arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${AWS::StackName}-*
             - Effect: Allow
               Action:
                 - "iam:AttachRolePolicy"
                 - "iam:CreateRole"
                 - "iam:DeleteRole"
                 - "iam:UpdateRole"
-                - "iam:DetachRolePolicy"                
+                - "iam:DeleteRolePolicy"                
                 - "iam:GetRole"
                 - "iam:GetRolePolicy"
                 - "iam:ListAttachedRolePolicies"
                 - "iam:ListRolePolicies"
                 - "iam:PutRolePolicy" 
+                - "iam:TagRole"
               Resource:
-                - !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${AWS::StackName}-awstransfer-*"
+                - !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${AWS::StackName}-*"
             - Effect: Allow
               Action: 
                 - "ec2:DescribeSecurityGroups"
@@ -349,12 +353,13 @@ Resources:
                 - "lambda:DeleteFunction"                
                 - "lambda:GetFunction"
                 - "lambda:GetFunctionCodeSigningConfig"
-                - "lambda:GetRuntimeManagementConfig"                
-              Resource: !Sub 'arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${AWS::StackName}'
+                - "lambda:GetRuntimeManagementConfig"  
+                - "lambda:RemovePermission"              
+              Resource: !Sub 'arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${AWS::StackName}-*'
             - Effect: Allow
               Action: 
                 - "lambda:PublishLayerVersion"
-              Resource: !Sub 'arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:layer:${AWS::StackName}'
+              Resource: !Sub 'arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:layer:${AWS::StackName}-*'
 
   CodeBuildProjectBuildDeploy:
     Type: AWS::CodeBuild::Project

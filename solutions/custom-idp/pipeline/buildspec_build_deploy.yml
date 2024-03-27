@@ -25,6 +25,7 @@ phases:
                     --s3-prefix sam-artifacts/
                     --capabilities "CAPABILITY_NAMED_IAM"
                     --no-confirm-changeset
+                    --on-failure DELETE
                     --parameter-overrides "Subnets=\"${Subnets}\" SecurityGroups=\"${SecurityGroups}\" SecretsManagerPermissions=\"${SecretsManagerPermissions}\" UserNameDelimiter=\"${UserNameDelimiter}\" LogLevel=\"${LogLevel}\" ProvisionApi=\"${ProvisionApi}\" EnableTracing=\"${EnableTracing}\" UsersTableName=\"${UsersTable}\" IdentityProvidersTableName=\"${IdentityProvidersTable}\""
 
 
