@@ -10,7 +10,7 @@ phases:
     commands:
       - cd "${PROJECT_SUBFOLDER}"
       - pwd
-      - ARTIFACTS_DIR="${PROJECT_SUBFOLDER}/src/handler_layer"
+      - ARTIFACTS_DIR="src/handler_layer"
       - echo "${ARTIFACTS_DIR}"
       - python3 -m pip install pipenv
       - pipenv lock 
