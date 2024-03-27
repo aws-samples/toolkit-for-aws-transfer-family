@@ -362,7 +362,7 @@ Resources:
   usersTable: 
     Condition: CreateUsersTable
     UpdateReplacePolicy: Retain
-    DeletionPolicy: Retain    
+    DeletionPolicy: RetainExceptOnCreate    
     Type: AWS::DynamoDB::Table
     Properties: 
       BillingMode: PAY_PER_REQUEST
@@ -381,7 +381,7 @@ Resources:
   identityProvidersTable: 
     Condition: CreateIdentityProvidersTable
     UpdateReplacePolicy: Retain
-    DeletionPolicy: Retain
+    DeletionPolicy: RetainExceptOnCreate
     Type: AWS::DynamoDB::Table
     Properties: 
       BillingMode: PAY_PER_REQUEST

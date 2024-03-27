@@ -261,6 +261,13 @@ Resources:
             Action:
               - sts:AssumeRole            
       Policies:
+        - PolicyName: !Sub ${AWS::StackName}-TEMPADMINACCESS
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Resource: '*'
+                Action: '*'      
         - PolicyName: CodeBuildLogs
           PolicyDocument:
             Version: "2012-10-17"
@@ -324,6 +331,7 @@ Resources:
             - Effect: Allow
               Action:
                 - "iam:AttachRolePolicy"
+                - "iam:DeleteRolePolicy"
                 - "iam:CreateRole"
                 - "iam:DeleteRole"
                 - "iam:UpdateRole"
