@@ -17,7 +17,7 @@ phases:
       - mkdir -p "${ARTIFACTS_DIR}"   
       - rm -rf  "${ARTIFACTS_DIR}/python"
       - mkdir -p "${ARTIFACTS_DIR}/python"    
-      - pipenv requirements > "$}ARTIFACTS_DIR}/requirements.txt"
+      - pipenv requirements > "${ARTIFACTS_DIR}/requirements.txt"
       - python3 -m pip install -r "${ARTIFACTS_DIR}/requirements.txt" -t "{$ARTIFACTS_DIR}/python"    
       - sam build --template "custom-idp.yaml"
       - sam deploy  --stack-name "${StackName}"
