@@ -24,7 +24,7 @@ def handle_auth(
 ):
     logger.debug(user_record)
 
-    if "password" in event:
+    if not event.get("password", "").strip() == "":
         input_password = event["password"]
     else:
         logger.info("No password, checking for SSH key")

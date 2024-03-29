@@ -19,16 +19,26 @@ Parameters:
     Description: "The path in the repo to the custom IdP solution. Default is solutions/custom-idp"
     Type: String
     Default: "solutions/custom-idp"
+  CreateVPC:
+    Description: 'When set, creates a pre-configured VPC for the custom IDP solution and uses it for the custom IdP Lambda function to simplify deployment. The VPC will contain public/private subnets for two AZs, two NAT Gateways, a Security Group, and a DynamoDB Gateway endpoint. If this is set to false, VPC, subnet, and security group information must be provided.'
+    Type: String
+    AllowedValues: [true, false]
+    Default: false
+  VPCCIDR:
+    Description: 'The CIDR to use for when creating a new VPC. The CIDR should be at least a /24 and will be divided evenly across 4 subnets. Required if CreateVPC is set.'
+    Type: String
+    Default: 172.31.0.0/16
+    AllowedPattern: ^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\/(1[6-9]|2[0-8]))$
   VpcId:
     Type: AWS::EC2::VPC::Id
-    Description: The VPC to attach the Lambda function to.
-    ConstraintDescription: A VPC is required for this solution so that the custom IdP Lambda function can connect to private IdPs such as LDAP and Active Directory.
+    Description: An existing VPC to attach the Lambda function to. Must be set if CreateVPC is not set to true.
+    Default: ''
   Subnets:
-    Description: A list of VPC subnets to attach the custom IdP Lambda to. To allow the Lambda function to connect to public IdP endpoints such as Okta, ensure the subnets are configure to route internet traffic to a NAT gateway in a public subnet. If the Lambda function will reside in private subnet without internet access, ensure a DynamoDB Gateway Endpoint is configured in the VPC.
+    Description: A list of VPC subnets to attach the custom IdP Lambda to. To allow the Lambda function to connect to public IdP endpoints such as Okta, ensure the subnets are configure to route internet traffic to a NAT gateway in a public subnet. If the Lambda function will reside in private subnet without internet access, ensure a DynamoDB Gateway Endpoint is configured in the VPC. Must be set if CreateVPC is not set to true.
     Type: List<AWS::EC2::Subnet::Id>
     ConstraintDescription: You must supply least one existing subnet. Subnets must reside in the same VPC.
   SecurityGroups:
-    Description: Security Groups to attach to the Lambda. 
+    Description: Security Groups to attach to the Lambda. Must be set if CreateVPC is not set to true.
     Type: List<AWS::EC2::SecurityGroup::Id>
   SecretsManagerPermissions:
     Description: 'When set, grants the custom IdP Lambda execution role permission to read Secrets Manager secrets. Note: this is required to use the secrets_manager module, or any other IdP module that depends on Secrets Manager in the future.'
@@ -84,6 +94,7 @@ Metadata:
         - Label: 
             default: Network Configuration
           Parameters:
+            - CreateVPC
             - VpcId
             - Subnets 
             - SecurityGroups 
@@ -111,6 +122,7 @@ Metadata:
       
 Rules:
   SubnetsInVPC:
+    RuleCondition: !Equals  [!Ref CreateVPC, 'false']
     Assertions:
       - Assert:
           'Fn::EachMemberEquals':
@@ -119,8 +131,19 @@ Rules:
                 - VpcId
             - Ref: VpcId
         AssertDescription: All subnets must in the VPC
+  CreateVPCSetCIDR:        
+    RuleCondition: !Equals  [!Ref CreateVPC, 'true']
+    Assertions:
+      - Assert:
+          'Fn::Not':
+            - 'Fn::Equals':
+                - Ref: VPCCIDR
+                - ""
+        AssertDescription: A VPC CIDR must be set when CreateVPC is enabled.       
+
 Conditions:
      UseConnection: !Not [!Equals [!Ref CodeStarConnectionArn, '']]
+     CreateVPC: !Equals [!Ref CreateVPC, 'true']
 Resources:
 
   CodePipelineServiceRole:
@@ -172,7 +195,7 @@ Resources:
                   - codebuild:StartBuild
                   - codebuild:BatchGetBuilds
                 Resource:
-                  - !GetAtt CodeBuildProjectBuildDeploy.Arn
+                  - !Sub "arn:${AWS::Partition}:codebuild:${AWS::Region}:${AWS::AccountId}:project/${AWS::StackName}-*"
               - Effect: Allow
                 Action:
                   - cloudformation:CreateStack
@@ -233,6 +256,19 @@ Resources:
                   Repo: !Sub ${Repo}
                   Branch: scaffolding
                 RunOrder: 1
+        - Name: TestVPCConnectivity
+          Actions:
+            - Name: TestVPCConnectivity
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Provider: CodeBuild
+                Version: "1"
+              RunOrder: 1
+              Configuration:
+                ProjectName: !Ref CodeBuildProjectTestVPCConnectivity
+              InputArtifacts:
+                - Name: SourceCodeAsZip  
         - Name: DeployProd
           Actions:
             - Name: DeployProd
@@ -416,9 +452,29 @@ Resources:
                 - 'apigateway:GET'
               Resource:
                 - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/apis/*'
+  CodeBuildProjectTestVPCConnectivity:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: !Sub ${AWS::StackName}-test-vpc-connectivity
+      Description: Tests VPC connectivity before deploying. If this fails, it means the custom IdP Lambda function cannot reach dependencies such as DynamoDB. Verify the subnet permits 
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/amazonlinux2-x86_64-standard:5.0
+      ServiceRole: !GetAtt CodeBuildServiceRole.Arn
+      VpcConfig:
+           SecurityGroupIds: !If [CreateVPC, !Sub "${SecurityGroup}",  !Ref SecurityGroups]
+           Subnets: !If [CreateVPC, [!Ref PrivateSubnet1, !Ref PrivateSubnet2], !Ref Subnets]
+           VpcId: !If [CreateVPC, !Ref VPC, !Ref VpcId]
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec: !Sub "${ProjectSubfolder}/pipeline/buildspec_test_connectivity.yml"        
   CodeBuildProjectBuildDeploy:
     Type: AWS::CodeBuild::Project
     Properties:
+      Name: !Sub ${AWS::StackName}-build-deploy
       Artifacts:
         Type: CODEPIPELINE
       Environment:
@@ -435,10 +491,10 @@ Resources:
             Value: !Sub ${AWS::StackName}-awstransfer-custom-idp
           - Name: Subnets
             Type: PLAINTEXT
-            Value: !Join [',', !Ref Subnets]
+            Value: !If [CreateVPC, !Sub "${PrivateSubnet1},${PrivateSubnet2}", !Join [',', !Ref Subnets]]
           - Name: SecurityGroups
             Type: PLAINTEXT
-            Value: !Join [',', !Ref SecurityGroups]
+            Value: !If [CreateVPC, !Sub "${SecurityGroup}", !Join [',', !Ref SecurityGroups]]
           - Name: SecretsManagerPermissions
             Type: PLAINTEXT
             Value: !Ref SecretsManagerPermissions
@@ -501,6 +557,177 @@ Resources:
             Resource:
               - !Sub arn:${AWS::Partition}:s3:::${PipelineArtifactsBucket}
               - !Sub arn:${AWS::Partition}:s3:::${PipelineArtifactsBucket}/*          
+
+  VPC:
+    Condition: CreateVPC
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref "VPCCIDR"
+      EnableDnsSupport: True
+      EnableDnsHostnames: True
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-vpc
+  InternetGateway:
+    Condition: CreateVPC
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-igw"      
+  PublicSubnet1:
+    Condition: CreateVPC
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref "VPC"
+      CidrBlock: !Select [0, !Cidr [!Ref VPCCIDR, 4, 8]]
+      AvailabilityZone: !Select [0, Fn::GetAZs: !Ref "AWS::Region"]
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-vpc-subnet-public-aza" 
+      MapPublicIpOnLaunch: true
+  PublicSubnet2:
+    Condition: CreateVPC
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref "VPC"
+      CidrBlock: !Select [1, !Cidr [!Ref VPCCIDR, 4, 8]]
+      AvailabilityZone: !Select [1, Fn::GetAZs: !Ref "AWS::Region"]
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-vpc-subnet-public-azb"      
+  PublicSubnetRouteTable:
+    Condition: CreateVPC
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref "VPC"
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-vpc-rtb-public"
+  PublicSubnetRoute:
+    Condition: CreateVPC
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref "PublicSubnetRouteTable"
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref "InternetGateway"
+ 
+  PublicSubnet1RouteTableAssociation:
+    Condition: CreateVPC
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref "PublicSubnet1"
+      RouteTableId: !Ref "PublicSubnetRouteTable"
+  PublicSubnet2RouteTableAssociation:
+    Condition: CreateVPC
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref "PublicSubnet2"
+      RouteTableId: !Ref "PublicSubnetRouteTable"   
+  NATGateway1:
+    Condition: CreateVPC
+    Type: AWS::EC2::NatGateway
+    Properties:
+      SubnetId: !Ref 'PublicSubnet1'
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-natgw-aza
+  NATGateway2:
+    Condition: CreateVPC
+    Type: AWS::EC2::NatGateway
+    Properties:
+      SubnetId: !Ref 'PublicSubnet2'
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-natgw-azb              
+  PrivateSubnet1:
+    Condition: CreateVPC
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref "VPC"
+      CidrBlock: !Select [2, !Cidr [!Ref VPCCIDR, 4, 8]]
+      AvailabilityZone: !Select [0, Fn::GetAZs: !Ref "AWS::Region"]
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-vpc-subnet-private-aza"
+  PrivateSubnet2:
+    Condition: CreateVPC
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref "VPC"
+      CidrBlock: !Select [3, !Cidr [!Ref VPCCIDR, 6, 7]]
+      AvailabilityZone: !Select [1, Fn::GetAZs: !Ref "AWS::Region"]
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-vpc-subnet-private-azb"          
+
+  PrivateSubnet1RouteTable:
+    Condition: CreateVPC
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref "VPC"
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-rtb-private-aza"     
+  PrivateSubnet1RouteTableAssociation:
+    Condition: CreateVPC
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref "PrivateSubnet1"
+      RouteTableId: !Ref "PrivateSubnet1RouteTable"           
+  PrivateSubnet2RouteTableAssociation:
+    Condition: CreateVPC
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref "PrivateSubnet2"
+      RouteTableId: !Ref "PrivateSubnet2RouteTable"          
+  PrivateSubnet2RouteTable:
+    Condition: CreateVPC
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref "VPC"
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-rtb-private-azb"        
+  PrivateSubnet1Route:
+    Condition: CreateVPC
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref "PrivateSubnet1RouteTable"
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NATGateway1
+  PrivateSubnet2Route:
+    Condition: CreateVPC
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref "PrivateSubnet2RouteTable"
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NATGateway2    
+  DDBVPCEndpoint:
+    Condition: CreateVPC
+    Type: "AWS::EC2::VPCEndpoint"
+    Properties:
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Action: "*"
+            Effect: Allow
+            Resource: "*"
+            Principal: "*"
+      RouteTableIds:
+        - !Ref "PublicSubnetRouteTable"
+        - !Ref "PrivateSubnet1RouteTable"
+        - !Ref "PrivateSubnet2RouteTable"
+      ServiceName: !Join ["", [com.amazonaws., !Ref "AWS::Region", .dynamodb]]
+      VpcId: !Ref "VPC"
+  SecurityGroup:
+    Condition: CreateVPC
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: ${StackName}-security-group
+      GroupDescription: ${StackName}-security-group
+      VpcId: !Ref VPC
+    
 Outputs:
   Pipeline:
     Description: CodePipeline URL
