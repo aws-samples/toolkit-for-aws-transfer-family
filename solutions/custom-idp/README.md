@@ -20,6 +20,7 @@ Content
   - [(Optional) Define a `$default$` user record](#optional-define-a-default-user-record)
   - [Test the provider](#test-the-provider)
   - [Next steps](#next-steps)
+- [Getting Help](#getting-help)
 - [Identity provider modules](#identity-provider-modules)
   - [How the identity provider modules work](#how-the-identity-provider-modules-work)
   - [Identity provider module reference](#identity-provider-module-reference)
@@ -480,6 +481,13 @@ To view the provider logs, open Cloudwatch Logs and select the log group `/aws/l
 ### Next steps
 With the solution setup completed and tested, you can begin adding more identity provider and user records, and explore advanced functionality in each module to support your use case. The [identity provider modules](#identity-provider-modules) section provides detailed information about each identity provider, its configuration settings, and example configurations. 
 
+
+## Getting Help
+
+The best way to interact with our team is through GitHub. You can open an [issue](https://github.com/aws/tookit-for-aws-transfer-family/issues/new/choose) and choose from one of our templates for bug reports, feature request, etc.
+
+You may also find help on [AWS re:Post](https://repost.aws). When asking a question, tag it with `AWS Transfer Family`.
+ 
 ## Identity provider modules
 This section describes how the identity provider modules work and describes the module-specific parameters that are used in each module's configuration. 
 
@@ -1192,10 +1200,18 @@ Follow these same steps to return the **LogLevel** setting to `INFO` after finis
   
   This can be done only if the API Gateway setting has been enabled and is used as the custom identity provider source.
 
-## Common issues
-* **After deploying the solution, authentication requests fail an the Lambda function logs show timeouts.**
+* **I need to re-deploy the solution, how do I retain my identity provider and user  tables?**
+  
+  The identity provider and user tables in DynamoDB are retained when the stack is deleted. When re-deploying the solution, reference the table names when creating the stack, and the solution will use the existing tables instead of creating new ones. 
 
-  Verify the custom IdP solution has been configured to use subnets in a VPC that can reach DynamoDB and IdP targets. Also verify the selected security groups have outbound rules that permit traffic to reach these targets. One way to verify this is to launch an EC2 instance in the subnets and attempt to reach the targets. For example, using curl to send a request to the DynamoDB regional endpoint should return an HTTP status code like the one below and not timeout: 
+## Common issues
+* **After deploying the solution, the pipeline fails on the "TestVPCConnectivity" stage.**
+  
+  This means that the custom IdP Lambda function cannot connect to dependent AWS services such as DynamoDB using the VPC, subnets, and/or security groups specified. Please verify both DynamoDB and any identity providers can be reached from these subnets. 
+
+* **After deploying the solution, authentication requests fail and/or the Lambda function logs show timeouts.**
+
+  Verify the custom IdP solution has been configured to use subnets in a VPC that can reach DynamoDB and IdP targets. Also verify the selected security groups have outbound rules that permit traffic to reach these targets. One way to verify this is to launch an EC2 instance WITHOUT a public IP address in the subnets and attempt to reach the targets. For example, using curl to send a request to the DynamoDB regional endpoint should return an HTTP status code like the one below and not timeout: 
   
   ```
   ➜  ~ curl https://dynamodb.[REGION].amazonaws.com -v

@@ -456,7 +456,7 @@ Resources:
     Type: AWS::CodeBuild::Project
     Properties:
       Name: !Sub ${AWS::StackName}-test-vpc-connectivity
-      Description: Tests VPC connectivity before deploying. If this fails, it means the custom IdP Lambda function cannot reach dependencies such as DynamoDB. Verify the subnet permits 
+      Description: Tests VPC connectivity before deploying. If this fails, it means the custom IdP Lambda function cannot reach dependencies such as DynamoDB. Verify the subnets and security groups allow Lambda to reach DynamoDB and other resources WITHOUT a public IP address.
       Artifacts:
         Type: CODEPIPELINE
       Environment:
@@ -475,6 +475,7 @@ Resources:
     Type: AWS::CodeBuild::Project
     Properties:
       Name: !Sub ${AWS::StackName}-build-deploy
+      Description: Builds and deploys (or updates) the custom IdP solution.
       Artifacts:
         Type: CODEPIPELINE
       Environment:
