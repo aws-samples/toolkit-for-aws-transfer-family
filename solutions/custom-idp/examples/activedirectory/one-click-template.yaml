@@ -1,0 +1,128 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'This template deploys the full stack for Transfer Server including Transfer Server, custom IdP, Microsoft AD, VPC and Subnets'
+Parameters:
+  DirectoryDNSName:
+    Description: Microsoft ActiveDirectory DNS Name
+    Type: String
+    Default: corp.demoftp.com
+  DirectoryAdminPassword:
+    Description: Microsoft ActiveDirectory Administrator Password
+    Type: String
+    MinLength: 5
+    MaxLength: 20
+    NoEcho: true
+  DirectoryBIOSName:
+    Description: Microsoft ActiveDirectory BIOS Name
+    Type: String
+    Default: corp
+    MinLength: 3
+    MaxLength: 20
+
+  SecretsManagerPermissions:
+    Description: Grant Lambda execution role permission to read Secrets Manager secrets (required to use the secrets_manager module)
+    Type: String
+    Default: 'false'
+    AllowedValues:
+      - 'true'
+      - 'false'
+
+  UserNameDelimiter:
+    Description: Delimiter for user name
+    Type: String
+    Default: '@'
+    AllowedValues:
+      - '@'
+      - '$'
+      - '\\'
+      - '/'
+    AllowedPattern: '[@\\\/\-]'
+    MaxLength: 1
+    MinLength: 1
+
+  LogLevel:
+    Description: 'Log level to configure for Lambda authentication function. Set to DEBUG for verbose logging to be used for troubleshooting. WARNING: This may result in sensitive information being put into logs.'
+    Type: String
+    Default: 'INFO'
+    AllowedValues:
+         - INFO
+         - DEBUG
+
+  ProvisionApi:
+    Description: 'Provision an API Gateway REST API. Enable this if you would like AWS Transfer to use a REST-based custom IdP instead of directly invoking the Lambda function.'
+    Type: String
+    Default: 'false'
+    AllowedValues:
+      - 'true'
+      - 'false'
+
+  EnableTracing:
+    Description: Enable X-ray tracing on various components
+    Type: String
+    Default: 'false'
+    AllowedValues:
+    - 'true'
+    - 'false'
+  
+  UsersTableName:
+    Description: The name of an existing DynamoDB table to use for Users. If blank, a new table will be created.
+    Type: String
+    Default: ''
+
+  IdentityProvidersTableName:
+    Description: The name of an existing DynamoDB table to use for Identity Providers. If blank, a new table will be created.
+    Type: String
+    Default: ''
+
+Resources:
+  ManagedAD:
+      Type: 'AWS::CloudFormation::Stack'
+      DeletionPolicy: Delete
+      Properties:
+        TemplateURL: ./managed-ad-template.yaml
+        Parameters:
+          DirectoryDNSName: !Ref DirectoryDNSName
+          DirectoryAdminPassword: !Ref DirectoryAdminPassword
+          DirectoryBIOSName: !Ref DirectoryBIOSName
+  CustomIdP:
+      Type: 'AWS::CloudFormation::Stack'
+      DeletionPolicy: Delete
+      Properties:
+        TemplateURL: ../../template.yaml
+        Parameters:
+          Subnets: !GetAtt ManagedAD.Outputs.PrivateSubnets
+          SecurityGroups: !GetAtt ManagedAD.Outputs.DefaultSecurityGroup
+          SecretsManagerPermissions: !Ref SecretsManagerPermissions
+          UserNameDelimiter: !Ref UserNameDelimiter
+          LogLevel: !Ref LogLevel
+          ProvisionApi: !Ref ProvisionApi
+          EnableTracing: !Ref EnableTracing
+          UsersTableName: !Ref UsersTableName
+          IdentityProvidersTableName: !Ref IdentityProvidersTableName
+
+  TransferServer:
+      Type: 'AWS::CloudFormation::Stack'
+      DeletionPolicy: Delete
+      Properties:
+        TemplateURL: ../transferserver/transfer-server-template.yaml
+        Parameters:
+          SecurityGroupId: !GetAtt ManagedAD.Outputs.DefaultSecurityGroup
+          AuthorizationFunctionArn: !GetAtt CustomIdP.Outputs.IdpHandlerFunction
+          BucketName: !Sub ${AWS::StackName}
+Outputs:
+  DirectoryID:
+    Description: ID of the MS Directory
+    Value: !GetAtt ManagedAD.Outputs.DirectoryID
+  PrimaryDNS:
+    Description: Primary DNS IPs of the MS Directory
+    Value: !GetAtt ManagedAD.Outputs.PrimaryDNS
+  SecondaryDNS:
+    Description: Secondary DNS IPs of the MSDirectory
+    Value: !GetAtt ManagedAD.Outputs.SecondaryDNS
+  TransferUserRole:
+    Description: Default Transfer User Role
+    Value: !GetAtt TransferServer.Outputs.SFTPUserRole
+  SFTPServerS3Bucket:  
+    Description: S3 Bucket Name
+    Value: !GetAtt TransferServer.Outputs.SFTPServerS3Bucket
+      
+                      

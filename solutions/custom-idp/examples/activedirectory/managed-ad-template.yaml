@@ -1,0 +1,68 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'This template deploys AWS Managed Microsoft AD Stack and a VPC with subnets'
+Parameters:
+  DirectoryDNSName:
+    Description: Microsoft ActiveDirectory DNS Name
+    Type: String
+    Default: corp.demoftp.com
+  DirectoryAdminPassword:
+    Description: Microsoft ActiveDirectory Administrator Password
+    Type: String
+    MinLength: 5
+    MaxLength: 20
+    NoEcho: true
+  DirectoryBIOSName:
+    Description: Microsoft ActiveDirectory BIOS Name
+    Type: String
+    Default: corp
+    MinLength: 3
+    MaxLength: 20
+Resources:
+  VpcStack:
+      Type: 'AWS::CloudFormation::Stack'
+      DeletionPolicy: Delete
+      Properties:
+        TemplateURL: ./vpc-cfn.yaml
+        Parameters:
+          VPCName: !Ref AWS::StackName
+  ManagedAD: 
+    Type: AWS::DirectoryService::MicrosoftAD
+    Properties: 
+      Name: !Ref DirectoryDNSName
+      Password: !Ref DirectoryAdminPassword
+      ShortName: !Ref DirectoryBIOSName
+      Edition: Standard
+      CreateAlias: true
+      VpcSettings: 
+        SubnetIds: 
+          - !GetAtt VpcStack.Outputs.PrivateSubnet0
+          - !GetAtt VpcStack.Outputs.PrivateSubnet1
+        VpcId: 
+          !GetAtt VpcStack.Outputs.VPCId
+
+Outputs:
+  DirectoryID:
+    Description: ID of the MS Directory
+    Value: !Ref ManagedAD
+  PrimaryDNS:
+    Description: Primary DNS IPs of the MS Directory
+    Value: !Select [ '0', !GetAtt ManagedAD.DnsIpAddresses ]
+  SecondaryDNS:
+    Description: Secondary DNS IPs of the MSDirectory
+    Value: !Select [ '1', !GetAtt ManagedAD.DnsIpAddresses ]
+  DirectoryAlias:
+    Description: AD alias
+    Value: !GetAtt ManagedAD.Alias
+  VpcId:
+    Description: Vpc Id
+    Value: !GetAtt VpcStack.Outputs.VPCId
+  PrivateSubnets:
+    Description: Private Subnets created
+    Value: !Join [ ",", [ !GetAtt VpcStack.Outputs.PrivateSubnet0, !GetAtt VpcStack.Outputs.PrivateSubnet1 ]]
+  PublicSubnets:
+    Description: Public Subnets created
+    Value: !Join [ ",", [ !GetAtt VpcStack.Outputs.PublicSubnet0, !GetAtt VpcStack.Outputs.PublicSubnet1 ]]
+  DefaultSecurityGroup:
+    Description: Default Security Group created
+    Value: !GetAtt VpcStack.Outputs.DefaultSecurityGroup
+  
