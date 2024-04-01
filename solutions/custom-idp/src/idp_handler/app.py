@@ -106,7 +106,10 @@ def lambda_handler(event, context):
     logger.info(
         f"Parsed username and IdP: Username: {username} IDP: {identity_provider}"
     )
-
+    if username == '$':
+            raise IdpHandlerException(
+                f"Username $default$ is reserved and cannot be used."
+            )        
     # Lookup user
     if identity_provider:
         user_record = USERS_TABLE.get_item(
@@ -299,7 +302,7 @@ def lambda_handler(event, context):
             )
 
     # An extra check to make sure we've really authenticated, prevent accidental authentication. There should always be either at least 1 public key in response, or 'password' authentication should have been used.
-    if len(response_data.get("PublicKeys", [])) < 1 and event.get("password", "") == "":
+    if len(response_data.get("PublicKeys", [])) < 1 and event.get("password", "").strip() == "":
         raise IdpHandlerException(
             "PublicKeys is empty and password was not set. Check user config and authentication module logic."
         )

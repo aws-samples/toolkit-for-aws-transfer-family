@@ -24,7 +24,7 @@ def handle_auth(
 ):
     logger.debug(user_record)
 
-    if "password" in event:
+    if not event.get("password", "").strip() == "":
         input_password = event["password"]
     else:
         logger.info("No password, checking for SSH key")
@@ -82,7 +82,7 @@ def handle_auth(
                 if "PublicKeys" in keys_secret_dict:
                     keys_list = keys_secret_dict["PublicKeys"]
                     if not type(keys_list) == list:
-                        keys_dict = ast.literal_eval(keys_list)
+                        keys_list = ast.literal_eval(keys_list)
                     logger.debug(f"Keys dict: {keys_list}")
                     response_data["PublicKeys"] = keys_list
                 else:

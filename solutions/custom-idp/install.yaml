@@ -1,0 +1,736 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+Description: Installation template for AWS Transfer Custom IdP Solution
+
+Parameters:
+  Repo:
+    Description: The name of the repo to use for source code to build the solution. By default, the source repo is the toolkit-for-aws-transfer-family in aws-samples.
+    Type: String
+    Default: toolkit-for-aws-transfer-family
+  RepoOwner:
+    Description: The name of the repo owner. By default, this sources from aws-samples.
+    Type: String
+    Default: aws-samples
+  CodeStarConnectionArn:
+    Description: The ARN of the CodeStar connection to use for accessing the repository. If blank, the Github provider is used and the repo is assumed to be public. This setting is useful if the solution is forked to a private repository in GitHub for development or customization.
+    Type: String
+    Default: ''    
+  ProjectSubfolder:
+    Description: "The path in the repo to the custom IdP solution. Default is solutions/custom-idp"
+    Type: String
+    Default: "solutions/custom-idp"
+  CreateVPC:
+    Description: 'When set, creates a pre-configured VPC for the custom IDP solution and uses it for the custom IdP Lambda function to simplify deployment. The VPC will contain public/private subnets for two AZs, two NAT Gateways, a Security Group, and a DynamoDB Gateway endpoint. If this is set to false, VPC, subnet, and security group information must be provided.'
+    Type: String
+    AllowedValues: [true, false]
+    Default: false
+  VPCCIDR:
+    Description: 'The CIDR to use for when creating a new VPC. The CIDR should be at least a /24 and will be divided evenly across 4 subnets. Required if CreateVPC is set.'
+    Type: String
+    Default: 172.31.0.0/16
+    AllowedPattern: ^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\/(1[6-9]|2[0-8]))$
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: An existing VPC to attach the Lambda function to. Must be set if CreateVPC is not set to true.
+    Default: ''
+  Subnets:
+    Description: A list of VPC subnets to attach the custom IdP Lambda to. To allow the Lambda function to connect to public IdP endpoints such as Okta, ensure the subnets are configure to route internet traffic to a NAT gateway in a public subnet. If the Lambda function will reside in private subnet without internet access, ensure a DynamoDB Gateway Endpoint is configured in the VPC. Must be set if CreateVPC is not set to true.
+    Type: List<AWS::EC2::Subnet::Id>
+    ConstraintDescription: You must supply least one existing subnet. Subnets must reside in the same VPC.
+  SecurityGroups:
+    Description: Security Groups to attach to the Lambda. Must be set if CreateVPC is not set to true.
+    Type: List<AWS::EC2::SecurityGroup::Id>
+  SecretsManagerPermissions:
+    Description: 'When set, grants the custom IdP Lambda execution role permission to read Secrets Manager secrets. Note: this is required to use the secrets_manager module, or any other IdP module that depends on Secrets Manager in the future.'
+    Type: String
+    AllowedValues: [true, false]
+    Default: false
+  UserNameDelimiter:
+    Description: Delimiter for user name
+    Type: String
+    Default: '@'
+    AllowedValues:
+      - '@'
+      - '$'
+      - '\\'
+      - '/'
+    AllowedPattern: '[@\\\/\-]'
+    MaxLength: 1
+    MinLength: 1
+  LogLevel:
+    Description: 'The log level to configure for Lambda authentication function. Set to DEBUG for verbose logging to be used for troubleshooting. WARNING: This may result in sensitive information being put into logs.'
+    Type: String
+    Default: 'INFO'
+    AllowedValues:
+         - INFO
+         - DEBUG
+  ProvisionApi:
+    Description: 'When set, provisions an API Gateway REST API. Enable this if you would like AWS Transfer to use a REST-based custom IdP instead of directly invoking the Lambda function.'
+    Type: String
+    Default: 'false'
+    AllowedValues:
+      - 'true'
+      - 'false'
+  EnableTracing:
+    Description: When set, enables X-ray tracing on various components
+    Type: String
+    Default: 'false'
+    AllowedValues:
+    - 'true'
+    - 'false'
+  
+  UsersTableName:
+    Description: The name of an existing DynamoDB table to use for Users. If blank, a new table will be created.
+    Type: String
+    Default: ''
+
+  IdentityProvidersTableName:
+    Description: The name of an existing DynamoDB table to use for Identity Providers. If blank, a new table will be created.
+    Type: String
+    Default: ''
+Metadata:
+     AWS::CloudFormation::Interface:
+      ParameterGroups:
+        - Label: 
+            default: Network Configuration
+          Parameters:
+            - CreateVPC
+            - VpcId
+            - Subnets 
+            - SecurityGroups 
+        - Label: 
+            default: Identity Provider Solution Settings
+          Parameters:
+            - UserNameDelimiter
+            - SecretsManagerPermissions
+            - ProvisionApi   
+            - LogLevel
+            - EnableTracing 
+        - Label: 
+            default: Existing DynamoDB Tables 
+          Parameters:
+            - UsersTableName
+            - IdentityProvidersTableName
+        - Label: 
+            default: Repository Settings 
+          Parameters:
+            - Repo
+            - RepoOwner
+            - CodeStarConnectionArn
+            - ProjectSubfolder
+
+      
+Rules:
+  SubnetsInVPC:
+    RuleCondition: !Equals  [!Ref CreateVPC, 'false']
+    Assertions:
+      - Assert:
+          'Fn::EachMemberEquals':
+            - 'Fn::ValueOf':
+                - Subnets
+                - VpcId
+            - Ref: VpcId
+        AssertDescription: All subnets must in the VPC
+  CreateVPCSetCIDR:        
+    RuleCondition: !Equals  [!Ref CreateVPC, 'true']
+    Assertions:
+      - Assert:
+          'Fn::Not':
+            - 'Fn::Equals':
+                - Ref: VPCCIDR
+                - ""
+        AssertDescription: A VPC CIDR must be set when CreateVPC is enabled.       
+
+Conditions:
+     UseConnection: !Not [!Equals [!Ref CodeStarConnectionArn, '']]
+     CreateVPC: !Equals [!Ref CreateVPC, 'true']
+Resources:
+
+  CodePipelineServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${AWS::StackName}-codepipeline-role
+      Path: /
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action:
+              - sts:AssumeRole
+            Principal:
+              Service:
+                - codepipeline.amazonaws.com
+      Policies:
+        - PolicyName: CodeStar
+          PolicyDocument: 
+            Version: "2012-10-17"
+            Statement: 
+              - Effect: Allow
+                Action: 
+                  - codestar-connections:UseConnection
+                Resource: !Ref CodeStarConnectionArn
+        - PolicyName: CodePipelineCodeAndS3Bucket
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetBucketAcl
+                  - s3:GetBucketLocation
+                Resource:
+                  - !GetAtt PipelineArtifactsBucket.Arn
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:GetObjectVersion
+                  - s3:PutObject
+                Resource:
+                  Fn::Sub: ${PipelineArtifactsBucket.Arn}/*
+        - PolicyName: CodePipelineCodeBuildAndCloudformationAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - codebuild:StartBuild
+                  - codebuild:BatchGetBuilds
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:codebuild:${AWS::Region}:${AWS::AccountId}:project/${AWS::StackName}-*"
+              - Effect: Allow
+                Action:
+                  - cloudformation:CreateStack
+                  - cloudformation:DescribeStacks
+                  - cloudformation:DeleteStack
+                  - cloudformation:UpdateStack
+                  - cloudformation:CreateChangeSet
+                  - cloudformation:ExecuteChangeSet
+                  - cloudformation:DeleteChangeSet
+                  - cloudformation:DescribeChangeSet
+                  - cloudformation:SetStackPolicy
+                  - cloudformation:SetStackPolicy
+                  - cloudformation:ValidateTemplate
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${AWS::StackName}-*"
+
+
+  AWSTransferCustomIdPCodePipelineProject:
+    Type: AWS::CodePipeline::Pipeline
+    Properties:
+      Name: !Sub ${AWS::StackName}-AWSTransferCustomIdP
+      RoleArn: !GetAtt CodePipelineServiceRole.Arn
+      ArtifactStore:
+           Type: S3 
+           Location: !Sub ${PipelineArtifactsBucket} 
+      Stages:
+        - Name: SourceStage
+          Actions:
+          - !If
+            - UseConnection
+            - 
+                Name: SourceAction
+                ActionTypeId:
+                  Category: Source
+                  Owner: AWS
+                  Provider: CodeStarSourceConnection
+                  Version: "1"
+                OutputArtifacts:
+                  - Name: SourceCodeAsZip
+                Configuration:
+                  ConnectionArn: !Ref CodeStarConnectionArn
+                  FullRepositoryId: !Sub ${RepoOwner}/${Repo}
+                  BranchName: scaffolding
+                  OutputArtifactFormat: CODE_ZIP    
+                  DetectChanges: false            
+                RunOrder: 1
+            - 
+                Name: SourceAction
+                ActionTypeId:
+                  Category: Source
+                  Owner: ThirdParty
+                  Provider: GitHub
+                  Version: "1"
+                OutputArtifacts:
+                  - Name: SourceCodeAsZip
+                Configuration:
+                  Owner: !Sub ${RepoOwner}
+                  Repo: !Sub ${Repo}
+                  Branch: scaffolding
+                RunOrder: 1
+        - Name: TestVPCConnectivity
+          Actions:
+            - Name: TestVPCConnectivity
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Provider: CodeBuild
+                Version: "1"
+              RunOrder: 1
+              Configuration:
+                ProjectName: !Ref CodeBuildProjectTestVPCConnectivity
+              InputArtifacts:
+                - Name: SourceCodeAsZip  
+        - Name: DeployProd
+          Actions:
+            - Name: DeployProd
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Provider: CodeBuild
+                Version: "1"
+              RunOrder: 1
+              Configuration:
+                ProjectName: !Ref CodeBuildProjectBuildDeploy
+              InputArtifacts:
+                - Name: SourceCodeAsZip  
+
+  CodeBuildServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${AWS::StackName}-codebuild-deployment-role
+      Path: /
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - codebuild.amazonaws.com
+            Action:
+              - sts:AssumeRole            
+      Policies:
+        - PolicyName: !Sub ${AWS::StackName}-TEMPADMINACCESS
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Resource: '*'
+                Action: '*'      
+        - PolicyName: CodeBuildLogs
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/codebuild/*"
+        - PolicyName: CodeBuildArtifactsBucket
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:GetObjectVersion
+                  - s3:PutObject
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:s3:::${PipelineArtifactsBucket}/*"
+        - PolicyName: !Sub ${AWS::StackName}-codebuild-customidp-deploy-policy
+          PolicyDocument: 
+            Version: 2012-10-17
+            Statement:
+            - Effect: Allow
+              Action: 
+                  - cloudformation:CreateStack
+                  - cloudformation:DescribeStacks
+                  - cloudformation:DeleteStack
+                  - cloudformation:UpdateStack
+                  - cloudformation:CreateChangeSet
+                  - cloudformation:ExecuteChangeSet
+                  - cloudformation:DeleteChangeSet
+                  - cloudformation:DescribeChangeSet
+                  - cloudformation:SetStackPolicy
+                  - cloudformation:SetStackPolicy
+                  - cloudformation:ValidateTemplate
+                  - cloudformation:DescribeStackEvents
+                  - cloudformation:GetTemplateSummary
+              Resource: 
+                - !Sub 'arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${AWS::StackName}-awstransfer-custom-idp/*'
+                - !Sub 'arn:${AWS::Partition}:cloudformation:${AWS::Region}:aws:transform/*'
+            - Effect: Allow
+              Action:  
+                - resource-groups:DeleteGroup              
+              Resource: 
+                - !Sub arn:${AWS::Partition}:resource-groups:${AWS::Region}:${AWS::AccountId}:group/${AWS::StackName}*
+            - Effect: Allow
+              Action:
+                - "dynamodb:CreateTable"
+                - "dynamodb:DeleteTable"
+                - "dynamodb:DescribeContinuousBackups"
+                - "dynamodb:DescribeContributorInsights"
+                - "dynamodb:DescribeKinesisStreamingDestination"
+                - "dynamodb:DescribeTable"
+                - "dynamodb:DescribeTimeToLive"
+                - "dynamodb:ListTagsOfResource"
+              Resource: 
+                - !Sub arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${AWS::StackName}-*
+            - Effect: Allow
+              Action:
+                - "iam:AttachRolePolicy"
+                - "iam:DeleteRolePolicy"
+                - "iam:CreateRole"
+                - "iam:DeleteRole"
+                - "iam:UpdateRole"
+                - "iam:DeleteRolePolicy"                
+                - "iam:GetRole"
+                - "iam:GetRolePolicy"
+                - "iam:ListAttachedRolePolicies"
+                - "iam:ListRolePolicies"
+                - "iam:PutRolePolicy" 
+                - "iam:TagRole"
+              Resource:
+                - !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${AWS::StackName}-*"
+            - Effect: Allow
+              Action: 
+                - "ec2:DescribeSecurityGroups"
+                - "ec2:DescribeSubnets"
+                - "ec2:DescribeVpcs"
+                - "resource-groups:CreateGroup"
+              Resource: "*"
+            - Effect: Allow
+              Action:  
+                - "lambda:CreateFunction"
+                - "lambda:UpdateFunctionConfiguration"
+                - "lambda:AddPermission"
+                - "lambda:CreateFunction"
+                - "lambda:UpdateFunction"
+                - "lambda:DeleteFunction"                
+                - "lambda:GetFunction"
+                - "lambda:GetFunctionCodeSigningConfig"
+                - "lambda:GetRuntimeManagementConfig"  
+                - "lambda:RemovePermission"              
+              Resource: !Sub 'arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${AWS::StackName}-*'
+            - Effect: Allow
+              Action: 
+                - "lambda:PublishLayerVersion"
+              Resource: !Sub 'arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:layer:${AWS::StackName}-*'
+            - Sid: APIGATEWAY
+              Effect: Allow
+              Action:
+                - 'apigateway:DELETE'
+                - 'apigateway:PUT'
+                - 'apigateway:PATCH'
+                - 'apigateway:POST'
+                - 'apigateway:TagResource'
+                - 'apigateway:UntagResource'
+              Resource:
+                - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/apis/*/integrations*'
+                - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/apis/*/stages*'
+                - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/apis/*/authorizers*'
+                - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/apis/*/routes*'
+                - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/tags/arn%3Aaws%3Aapigateway%3A${AWS::Region}%3A%3A%2Fv2%2Fapis%2F*'
+            - Sid: APIGATEWAYMANAGEAPI
+              Effect: Allow
+              Action:
+                - 'apigateway:DELETE'
+                - 'apigateway:PUT'
+                - 'apigateway:PATCH'
+                - 'apigateway:POST'
+                - 'apigateway:GET'
+              Resource:
+                - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/apis'
+              Condition:
+                StringEquals:
+                  'apigateway:Request/ApiName': 'Custom Identity Provider API for AWS Transfer'
+            - Sid: APIGATEWAYMANAGEAPI2
+              Effect: Allow
+              Action:
+                - 'apigateway:DELETE'
+                - 'apigateway:PUT'
+                - 'apigateway:PATCH'
+                - 'apigateway:POST'
+                - 'apigateway:GET'
+              Resource:
+                - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/apis/*'
+              Condition:
+                StringEquals:
+                  'apigateway:Resource/ApiName': 'Custom Identity Provider API for AWS Transfer'
+            - Sid: APIGATEWAYGET
+              Effect: Allow
+              Action:
+                - 'apigateway:GET'
+              Resource:
+                - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/apis/*'
+  CodeBuildProjectTestVPCConnectivity:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: !Sub ${AWS::StackName}-test-vpc-connectivity
+      Description: Tests VPC connectivity before deploying. If this fails, it means the custom IdP Lambda function cannot reach dependencies such as DynamoDB. Verify the subnets and security groups allow Lambda to reach DynamoDB and other resources WITHOUT a public IP address.
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/amazonlinux2-x86_64-standard:5.0
+      ServiceRole: !GetAtt CodeBuildServiceRole.Arn
+      VpcConfig:
+           SecurityGroupIds: !If [CreateVPC, !Sub "${SecurityGroup}",  !Ref SecurityGroups]
+           Subnets: !If [CreateVPC, [!Ref PrivateSubnet1, !Ref PrivateSubnet2], !Ref Subnets]
+           VpcId: !If [CreateVPC, !Ref VPC, !Ref VpcId]
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec: !Sub "${ProjectSubfolder}/pipeline/buildspec_test_connectivity.yml"        
+  CodeBuildProjectBuildDeploy:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: !Sub ${AWS::StackName}-build-deploy
+      Description: Builds and deploys (or updates) the custom IdP solution.
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/amazonlinux2-x86_64-standard:5.0
+        EnvironmentVariables:
+          - Name: ARTIFACTS_BUCKET
+            Value: !Ref PipelineArtifactsBucket
+          - Name: PROJECT_SUBFOLDER
+            Value: !Ref ProjectSubfolder
+          - Name: StackName
+            Type: PLAINTEXT
+            Value: !Sub ${AWS::StackName}-awstransfer-custom-idp
+          - Name: Subnets
+            Type: PLAINTEXT
+            Value: !If [CreateVPC, !Sub "${PrivateSubnet1},${PrivateSubnet2}", !Join [',', !Ref Subnets]]
+          - Name: SecurityGroups
+            Type: PLAINTEXT
+            Value: !If [CreateVPC, !Sub "${SecurityGroup}", !Join [',', !Ref SecurityGroups]]
+          - Name: SecretsManagerPermissions
+            Type: PLAINTEXT
+            Value: !Ref SecretsManagerPermissions
+          - Name: UserNameDelimiter
+            Type: PLAINTEXT
+            Value: !Ref UserNameDelimiter
+          - Name: LogLevel
+            Type: PLAINTEXT
+            Value: !Ref LogLevel
+          - Name: ProvisionApi
+            Type: PLAINTEXT
+            Value: !Ref ProvisionApi
+          - Name: EnableTracing
+            Type: PLAINTEXT
+            Value: !Ref EnableTracing
+          - Name: UsersTableName
+            Type: PLAINTEXT
+            Value: !Ref UsersTableName
+          - Name: IdentityProvidersTableName
+            Type: PLAINTEXT
+            Value: !Ref IdentityProvidersTableName                   
+      ServiceRole: !GetAtt CodeBuildServiceRole.Arn
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec: !Sub "${ProjectSubfolder}/pipeline/buildspec_build_deploy.yml"
+
+  PipelineArtifactsBucket:
+      Type: AWS::S3::Bucket
+      DeletionPolicy: Retain
+      UpdateReplacePolicy: Retain
+      Properties:
+        BucketName: !Sub ${AWS::StackName}-${AWS::AccountId}-${AWS::Region}-artifacts
+        VersioningConfiguration:
+          Status: Enabled
+        BucketEncryption:
+          ServerSideEncryptionConfiguration:
+            - ServerSideEncryptionByDefault:
+                SSEAlgorithm: AES256
+        
+  PipelineArtifactsBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref PipelineArtifactsBucket
+      PolicyDocument:
+        Statement:
+          - Effect: Deny
+            Action: s3:*
+            Principal: "*"
+            Resource:
+              - !Sub  "${PipelineArtifactsBucket.Arn}/*"
+              - !GetAtt PipelineArtifactsBucket.Arn
+            Condition:
+              Bool:
+                aws:SecureTransport: false
+          - Effect: Allow
+            Action: s3:*
+            Principal:
+              AWS:
+                - !GetAtt CodePipelineServiceRole.Arn
+            Resource:
+              - !Sub arn:${AWS::Partition}:s3:::${PipelineArtifactsBucket}
+              - !Sub arn:${AWS::Partition}:s3:::${PipelineArtifactsBucket}/*          
+
+  VPC:
+    Condition: CreateVPC
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref "VPCCIDR"
+      EnableDnsSupport: True
+      EnableDnsHostnames: True
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-vpc
+  InternetGateway:
+    Condition: CreateVPC
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-igw"      
+  PublicSubnet1:
+    Condition: CreateVPC
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref "VPC"
+      CidrBlock: !Select [0, !Cidr [!Ref VPCCIDR, 4, 8]]
+      AvailabilityZone: !Select [0, Fn::GetAZs: !Ref "AWS::Region"]
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-vpc-subnet-public-aza" 
+      MapPublicIpOnLaunch: true
+  PublicSubnet2:
+    Condition: CreateVPC
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref "VPC"
+      CidrBlock: !Select [1, !Cidr [!Ref VPCCIDR, 4, 8]]
+      AvailabilityZone: !Select [1, Fn::GetAZs: !Ref "AWS::Region"]
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-vpc-subnet-public-azb"      
+  PublicSubnetRouteTable:
+    Condition: CreateVPC
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref "VPC"
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-vpc-rtb-public"
+  PublicSubnetRoute:
+    Condition: CreateVPC
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref "PublicSubnetRouteTable"
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref "InternetGateway"
+ 
+  PublicSubnet1RouteTableAssociation:
+    Condition: CreateVPC
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref "PublicSubnet1"
+      RouteTableId: !Ref "PublicSubnetRouteTable"
+  PublicSubnet2RouteTableAssociation:
+    Condition: CreateVPC
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref "PublicSubnet2"
+      RouteTableId: !Ref "PublicSubnetRouteTable"   
+  NATGateway1:
+    Condition: CreateVPC
+    Type: AWS::EC2::NatGateway
+    Properties:
+      SubnetId: !Ref 'PublicSubnet1'
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-natgw-aza
+  NATGateway2:
+    Condition: CreateVPC
+    Type: AWS::EC2::NatGateway
+    Properties:
+      SubnetId: !Ref 'PublicSubnet2'
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-natgw-azb              
+  PrivateSubnet1:
+    Condition: CreateVPC
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref "VPC"
+      CidrBlock: !Select [2, !Cidr [!Ref VPCCIDR, 4, 8]]
+      AvailabilityZone: !Select [0, Fn::GetAZs: !Ref "AWS::Region"]
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-vpc-subnet-private-aza"
+  PrivateSubnet2:
+    Condition: CreateVPC
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref "VPC"
+      CidrBlock: !Select [3, !Cidr [!Ref VPCCIDR, 6, 7]]
+      AvailabilityZone: !Select [1, Fn::GetAZs: !Ref "AWS::Region"]
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-vpc-subnet-private-azb"          
+
+  PrivateSubnet1RouteTable:
+    Condition: CreateVPC
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref "VPC"
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-rtb-private-aza"     
+  PrivateSubnet1RouteTableAssociation:
+    Condition: CreateVPC
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref "PrivateSubnet1"
+      RouteTableId: !Ref "PrivateSubnet1RouteTable"           
+  PrivateSubnet2RouteTableAssociation:
+    Condition: CreateVPC
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref "PrivateSubnet2"
+      RouteTableId: !Ref "PrivateSubnet2RouteTable"          
+  PrivateSubnet2RouteTable:
+    Condition: CreateVPC
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref "VPC"
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-rtb-private-azb"        
+  PrivateSubnet1Route:
+    Condition: CreateVPC
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref "PrivateSubnet1RouteTable"
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NATGateway1
+  PrivateSubnet2Route:
+    Condition: CreateVPC
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref "PrivateSubnet2RouteTable"
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NATGateway2    
+  DDBVPCEndpoint:
+    Condition: CreateVPC
+    Type: "AWS::EC2::VPCEndpoint"
+    Properties:
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Action: "*"
+            Effect: Allow
+            Resource: "*"
+            Principal: "*"
+      RouteTableIds:
+        - !Ref "PublicSubnetRouteTable"
+        - !Ref "PrivateSubnet1RouteTable"
+        - !Ref "PrivateSubnet2RouteTable"
+      ServiceName: !Join ["", [com.amazonaws., !Ref "AWS::Region", .dynamodb]]
+      VpcId: !Ref "VPC"
+  SecurityGroup:
+    Condition: CreateVPC
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: ${StackName}-security-group
+      GroupDescription: ${StackName}-security-group
+      VpcId: !Ref VPC
+    
+Outputs:
+  Pipeline:
+    Description: CodePipeline URL
+    Value:
+      !Sub https://${AWS::Region}.console.aws.amazon.com/codesuite/codepipeline/pipelines/${AWSTransferCustomIdPCodePipelineProject}/view      

@@ -242,7 +242,7 @@ def handle_auth(
 ):
     logger.debug(f"User record: {user_record}")
 
-    if not "password" in event:
+    if event.get("password", "").strip() == "":
         raise OktaIdpModuleError(
             "Password not specified, this provider does not support public key auth."
         )

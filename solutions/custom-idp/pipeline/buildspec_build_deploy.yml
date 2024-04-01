@@ -1,0 +1,31 @@
+version: 0.2
+phases:
+  install:
+    runtime-versions:
+      python: 3.11
+    commands:
+      - pip install --upgrade pip
+      - pip install --upgrade awscli aws-sam-cli
+  build:
+    commands:
+      - cd "${PROJECT_SUBFOLDER}"
+      - pwd
+      - ARTIFACTS_DIR="src/handler_layer"
+      - echo "${ARTIFACTS_DIR}"
+      - python3 -m pip install pipenv
+      - pipenv lock 
+      - mkdir -p "${ARTIFACTS_DIR}"   
+      - rm -rf  "${ARTIFACTS_DIR}/python"
+      - mkdir -p "${ARTIFACTS_DIR}/python"    
+      - pipenv requirements > "${ARTIFACTS_DIR}/requirements.txt"
+      - python3 -m pip install -r "${ARTIFACTS_DIR}/requirements.txt" -t "{$ARTIFACTS_DIR}/python"    
+      - sam build --template "custom-idp.yaml"
+      - sam deploy  --stack-name "${StackName}"
+                    --s3-bucket "${ARTIFACTS_BUCKET}"
+                    --s3-prefix sam-artifacts/
+                    --capabilities "CAPABILITY_NAMED_IAM"
+                    --no-confirm-changeset
+                    --on-failure DELETE
+                    --parameter-overrides "Subnets=\"${Subnets}\" SecurityGroups=\"${SecurityGroups}\" SecretsManagerPermissions=\"${SecretsManagerPermissions}\" UserNameDelimiter=\"${UserNameDelimiter}\" LogLevel=\"${LogLevel}\" ProvisionApi=\"${ProvisionApi}\" EnableTracing=\"${EnableTracing}\" UsersTableName=\"${UsersTable}\" IdentityProvidersTableName=\"${IdentityProvidersTable}\""
+
+
