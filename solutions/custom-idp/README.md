@@ -1204,6 +1204,10 @@ Follow these same steps to return the **LogLevel** setting to `INFO` after finis
   
   The identity provider and user tables in DynamoDB are retained when the stack is deleted. When re-deploying the solution, reference the table names when creating the stack, and the solution will use the existing tables instead of creating new ones. 
 
+* **Does the AWS Transfer server need to be deployed in the same VPC as the Custom IdP solution?**
+
+  No, it can be deploy independently of the VPC the Custom IdP solution uses.
+
 ## Common issues
 * **After deploying the solution, the pipeline fails on the "TestVPCConnectivity" stage.**
   
