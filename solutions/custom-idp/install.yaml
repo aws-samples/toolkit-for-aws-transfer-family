@@ -297,13 +297,6 @@ Resources:
             Action:
               - sts:AssumeRole            
       Policies:
-        - PolicyName: !Sub ${AWS::StackName}-TEMPADMINACCESS
-          PolicyDocument:
-            Version: 2012-10-17
-            Statement:
-              - Effect: Allow
-                Resource: '*'
-                Action: '*'      
         - PolicyName: CodeBuildLogs
           PolicyDocument:
             Version: "2012-10-17"
@@ -733,4 +726,16 @@ Outputs:
   Pipeline:
     Description: CodePipeline URL
     Value:
-      !Sub https://${AWS::Region}.console.aws.amazon.com/codesuite/codepipeline/pipelines/${AWSTransferCustomIdPCodePipelineProject}/view      
+      !Sub https://${AWS::Region}.console.aws.amazon.com/codesuite/codepipeline/pipelines/${AWSTransferCustomIdPCodePipelineProject}/view     
+  VPC:
+    Description: The VPC that is used with the custom IdP solution.
+    Value:
+      !If [CreateVPC, !Ref VPC, !Ref VpcId]   
+  Subnets:
+    Description: The subnets used by the Lambda function in the custom IdP solution.
+    Value:
+      !If [CreateVPC, !Sub "${PrivateSubnet1},${PrivateSubnet2}", !Join [",", !Ref Subnets]]         
+  SecurityGroups:
+    Description: The VPC subnets attached to the Lambda function in the custom IdP solution.
+    Value:
+      !If [CreateVPC, !Ref VPC, !Ref VpcId]          
