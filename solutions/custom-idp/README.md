@@ -49,8 +49,8 @@ Content
 - [Common issues](#common-issues)
 - [Tutorials](#tutorials)
   - [Setting up Okta](#setting-up-okta)
-  - [Configuring Okta to retrieve session settings from user profile attributes](#configuring-okta-to-retrieve-session-settings-from-user-profile-attributes)
   - [Configuring Okta MFA](#configuring-okta-mfa)
+  - [Configuring Okta to retrieve session settings from user profile attributes](#configuring-okta-to-retrieve-session-settings-from-user-profile-attributes)
 - [Contributing a Module](#contributing-a-module)
 - [Security](#security)
 - [License](#license)
@@ -416,7 +416,7 @@ Below is an example of a `$default$` user record, for mapped to an an Active Dir
 ```
 To further illustrate a scenario where `$default$` is used, suppose `PosixProfile` and a scoped `Policy` are retrieved from Active Directory or LDAP server. This is what the identity provider record might look like.
 
-```
+```json
 {
   "provider": {
     "S": "example.com"
@@ -715,11 +715,7 @@ Default: `false`
       "ssl_verify": {
         "BOOL": true
       }
-     },
-     "Role": {
-        "S": "arn:aws:iam::123456789012:role/examplecom-AWSTransferRole"
-    }
-  }
+     }
   },
   "module": {
     "S": "ldap"
@@ -767,7 +763,7 @@ The `okta` module supports authentication with an Okta instance. It supports TOT
         "S": "[app client id]"
       },
       "okta_redirect_uri": {
-        "S": "[app client id]"
+        "S": "[okta redirect uri]"
       },      
       "mfa": {
         "BOOL": [true or false]
@@ -1075,7 +1071,7 @@ When an AWS Transfer Family custom identity provider authenticates a user, it re
                 "S": "arn:aws:iam::123456789012:role/examplecom-AWSTransferRole"
             }
         }
-    },
+      },
     "module": {
         "S": "ldap"
     }
@@ -1206,7 +1202,7 @@ Follow these same steps to return the **LogLevel** setting to `INFO` after finis
 
 * **Does the AWS Transfer server need to be deployed in the same VPC as the Custom IdP solution?**
 
-  No, it can be deploy independently of the VPC the Custom IdP solution uses.
+  No, it can be deploy independently of the VPC the Custom IdP solution uses. 
 
 ## Common issues
 * **After deploying the solution, the pipeline fails on the "TestVPCConnectivity" stage.**
@@ -1264,10 +1260,74 @@ Follow these same steps to return the **LogLevel** setting to `INFO` after finis
 ## Tutorials
 
 ### Setting up Okta
+Authenticating users with Okta can be as simple as defining an identity provider with the `okta` module and including the `okta_domain` setting. The basic steps for this are as follows:
+
+1. Determine your Okta domain. This should be in the format of `{domain}.okta.com`
+2. In the `identity_providers` DynamoDB table, create a new record, replacing `{provider}` with your desired provider name and `{okta_domain}` with your own Okta domain.
+
+  ```json
+    {
+      "provider": {
+        "S": "{provider}"
+      },
+      "config": {
+        "M": {
+          "okta_domain": {
+            "S": "{okta_domain}"
+          }
+        }
+      },
+      "module": {
+        "S": "okta"
+      }
+    }
+    ```
+
+3. In the `users` DynamoDB table, create a new record similar to the one below, replacing any placeholders `{}` with real values. Ensure `{username}` matches a valid username in Okta, and `{provider}` is the name of the provider from the previous step.
+
+   ```json
+    {
+      "user": {
+        "S": "{username}"
+      },
+      "identity_provider_key": {
+        "S": "{provider}"
+      },
+      "config": {
+        "M": {
+          "HomeDirectoryDetails": {
+            "L": [
+              {
+                "M": {
+                  "Entry": {
+                    "S": "{virtual path}"
+                  },
+                  "Target": {
+                    "S": "{[bucketname/prefix/to/files}"
+                  }
+                }
+              }
+            ]
+          },
+          "HomeDirectoryType": {
+            "S": "LOGICAL"
+          },
+          "Role": {
+            "S": "{arn:aws:iam::[AWS Account Id]:role/[Role Name]}"
+          }
+        }
+      }
+    }
+  ```
+
+4. Test the identity provider, either by attempting to connect with an SFTP client, or by going to your AWS Transfer Server in the AWS Console and selecting **Actions > Test** in the upper right corner. If you encounter any failures, see the [Troubleshooting section](#logging-and-troubleshooting) for guidance on how to use logs for identifying the issue.
+
+
+### Configuring Okta MFA
+
 
 ### Configuring Okta to retrieve session settings from user profile attributes
 
-### Configuring Okta MFA
 
 ## Contributing a Module
 Want to contribute a module? Please see the [CONTRIBUTING] document for more guidance and standards for building a module and contributing it to this solution. [TODO]

@@ -32,9 +32,6 @@ class IdpHandlerException(Exception):
     pass
 
 
-transfer_server_details = {}
-
-
 @xray_recorder.capture()
 def ip_in_cidr_list(ip_address, cidr_list):
     for cidr in cidr_list:
@@ -51,26 +48,6 @@ def ip_in_cidr_list(ip_address, cidr_list):
     return False
 
 @xray_recorder.capture()
-def fetch_transfer_server_details(server_id):
-    if transfer_server_details.get(server_id, None) is None or (
-        datetime.datetime.now()
-        - transfer_server_details.get(server_id, {}).get(
-            "timestamp", datetime.datetime.fromtimestamp(0)
-        )
-    ).seconds > 300 + random.randint(0, 120):
-        logger.info(f"Fetching server details for {server_id}")
-        transfer_server_details[server_id] = {
-            "details": util.get_transfer_server_details(server_id),
-            "timestamp": datetime.datetime.now(),
-        }
-    else:
-        logger.info(f"Using cached details for {server_id}")
-
-    logger.debug(f"Transfer server details: {transfer_server_details[server_id]}")
-    return transfer_server_details[server_id]["details"]
-
-
-@xray_recorder.capture()
 def lambda_handler(event, context):
     response_data = {}
 
@@ -78,11 +55,6 @@ def lambda_handler(event, context):
 
     if "username" not in event or "serverId" not in event:
         raise IdpHandlerException("Incoming username or serverId missing  - Unexpected")
-
-    server_details = fetch_transfer_server_details(event["serverId"])
-    server_auth_method = server_details["Server"]["IdentityProviderDetails"][
-        "SftpAuthenticationMethods"
-    ]
 
     input_username = event["username"].lower()
     logger.info(f"Username: {input_username}, ServerId: {event['serverId']}")
@@ -268,9 +240,9 @@ def lambda_handler(event, context):
         "Response Data before processing with IdP module: " + json.dumps(response_data)
     )
 
-    if server_auth_method == "PUBLIC_KEY_AND_PASSWORD" and not "password" in event:
+    if event.get("password", "").strip() == "":
         logger.info(
-            f"Server {event['serverId']} set to PUBLIC_KEY_AND_PASSWORD and no password provided, performing public key auth."
+            f"No password provided, performing public key auth."
         )
         from idp_modules import public_key
 

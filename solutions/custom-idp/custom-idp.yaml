@@ -4,18 +4,21 @@ Description: >
 
 Parameters:
   Subnets:
-    Description: VPC Subnets
-    Type: String
+    Description: A list of VPC subnets to attach the custom IdP Lambda to. To allow the Lambda function to connect to public IdP endpoints such as Okta, ensure the subnets are configure to route internet traffic to a NAT gateway in a public subnet. If the Lambda function will reside in private subnet without internet access, ensure a DynamoDB Gateway Endpoint is configured in the VPC. Must be set if CreateVPC is not set to true.
+    Type: CommaDelimitedList
+    ConstraintDescription: You must supply least one existing subnet. Subnets must reside in the same VPC.
+    AllowedPattern: ^(subnet-[0-9a-z]+)$|^$
+    Default: ''
   SecurityGroups:
-    Description: Security Groups
-    Type: String
+    Description: Security Groups to attach to the Lambda. Must be set if CreateVPC is not set to true.
+    Type: CommaDelimitedList
+    AllowedPattern: ^(sg-[0-9a-z]+)$|^$
+    Default: ''
   SecretsManagerPermissions:
-    Description: Grant Lambda execution role permission to read Secrets Manager secrets (required to use the secrets_manager module)
+    Description: 'When set, grants the custom IdP Lambda execution role permission to read Secrets Manager secrets. Note: this is required to use the secrets_manager module, or any other IdP module that depends on Secrets Manager in the future.'
     Type: String
+    AllowedValues: ['true', 'false']
     Default: 'false'
-    AllowedValues:
-      - 'true'
-      - 'false'
   UserNameDelimiter:
     Description: Delimiter for user name
     Type: String
@@ -29,21 +32,21 @@ Parameters:
     MaxLength: 1
     MinLength: 1
   LogLevel:
-    Description: 'Log level to configure for Lambda authentication function. Set to DEBUG for verbose logging to be used for troubleshooting. WARNING: This may result in sensitive information being put into logs.'
+    Description: 'The log level to configure for Lambda authentication function. Set to DEBUG for verbose logging to be used for troubleshooting. WARNING: This may result in sensitive information being put into logs.'
     Type: String
     Default: 'INFO'
     AllowedValues:
          - INFO
          - DEBUG
   ProvisionApi:
-    Description: 'Provision an API Gateway REST API. Enable this if you would like AWS Transfer to use a REST-based custom IdP instead of directly invoking the Lambda function.'
+    Description: 'When set, provisions an API Gateway REST API. Enable this if you would like AWS Transfer to use a REST-based custom IdP instead of directly invoking the Lambda function.'
     Type: String
     Default: 'false'
     AllowedValues:
       - 'true'
       - 'false'
   EnableTracing:
-    Description: Enable X-ray tracing on various components
+    Description: When set, enables X-ray tracing on various components
     Type: String
     Default: 'false'
     AllowedValues:
@@ -59,7 +62,6 @@ Parameters:
     Description: The name of an existing DynamoDB table to use for Identity Providers. If blank, a new table will be created.
     Type: String
     Default: ''
-
 
 
 Conditions:
