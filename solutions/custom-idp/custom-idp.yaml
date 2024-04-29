@@ -617,8 +617,8 @@ Resources:
     Condition: CreateVPC
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupName: ${StackName}-security-group
-      GroupDescription: ${StackName}-security-group
+      GroupName: !Sub ${AWS::StackName}-security-group
+      GroupDescription: !Sub ${AWS::StackName}-security-group
       VpcId: !Ref VPC
 
 Outputs:

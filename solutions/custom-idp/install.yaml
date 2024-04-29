@@ -183,14 +183,17 @@ Resources:
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
-              - Effect: Allow
-                Action:
-                  - codecommit:GetBranch
-                  - codecommit:GetCommit
-                  - codecommit:GetUploadArchiveStatus
-                  - codecommit:UploadArchive
-                  - codecommit:CancelUploadArchive
-                Resource: !GetAtt CodePipelineSourceRepo.Arn            
+              - !If 
+                  - UseGithub
+                  - Effect: Allow
+                    Action:
+                      - codecommit:GetBranch
+                      - codecommit:GetCommit
+                      - codecommit:GetUploadArchiveStatus
+                      - codecommit:UploadArchive
+                      - codecommit:CancelUploadArchive
+                    Resource: !GetAtt CodePipelineSourceRepo.Arn   
+                  - !Ref AWS::NoValue         
               - Effect: Allow
                 Action:
                   - codebuild:StartBuild
@@ -214,6 +217,7 @@ Resources:
                   - !Sub "arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${AWS::StackName}-*"
 
   CodePipelineSourceRepo:
+    Condition: UseGithub
     Type: AWS::CodeCommit::Repository
     Properties:
       RepositoryDescription: !Sub Empty repository for ${AWS::StackName}-AWSTransferCustomIdP, used as empty source for CodePipeline.
@@ -391,8 +395,20 @@ Resources:
                 - "ec2:DescribeSecurityGroups"
                 - "ec2:DescribeSubnets"
                 - "ec2:DescribeVpcs"
+                - "ec2:DescribeNetworkInterfaces"
+                - "ec2:DeleteNetworkInterface"
+                - "ec2:CreateNetworkInterface"       
+                - "ec2:DescribeDhcpOptions"           
                 - "resource-groups:CreateGroup"
               Resource: "*"
+            - Effect: Allow
+              Action:
+                - "ec2:CreateNetworkInterfacePermission"
+              Resource: !Sub arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:network-interface/* 
+              Condition:
+                StringEquals:
+                  ec2:AuthorizedService: "codebuild.amazonaws.com"
+                
             - Effect: Allow
               Action:  
                 - "lambda:CreateFunction"
@@ -907,8 +923,8 @@ Resources:
     Condition: CreateVPC
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupName: ${StackName}-security-group
-      GroupDescription: ${StackName}-security-group
+      GroupName: !Sub ${AWS::StackName}-security-group
+      GroupDescription: !Sub ${AWS::StackName}-security-group
       VpcId: !Ref VPC
     
 Outputs:

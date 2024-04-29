@@ -237,9 +237,9 @@ An alternate method to deploying the solution is through the `install.yml` Cloud
    
   ![AWS Transfer console](screenshots/ss-transfer-01-create-server.png)
 
-1. At the **Choose protocols** screen, select the protocols to enable and click **Next**
+2. At the **Choose protocols** screen, select the protocols to enable and click **Next**
 
-2. At the **Choose an identity provider** screen, select **Custom Identity Provider**, then select one of the identity provider options below.
+3. At the **Choose an identity provider** screen, select **Custom Identity Provider**, then select one of the identity provider options below.
 
     **Option 1: Use AWS Lambda to connect your identity provider**
     
@@ -1359,7 +1359,7 @@ Authenticating users with Okta can be as simple as defining an identity provider
         "S": "okta"
       }
     }
-    ```
+  ```
 
 3. In the `users` DynamoDB table, create a new record similar to the one below, replacing any placeholders `{}` with real values. Ensure `{username}` matches a valid username in Okta, and `{provider}` is the name of the provider from the previous step.
 
