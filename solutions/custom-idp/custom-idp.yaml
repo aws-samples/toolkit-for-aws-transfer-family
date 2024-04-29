@@ -105,9 +105,9 @@ Metadata:
 
 Conditions:
   CreateVPC: !Equals [!Ref CreateVPC, 'true']
-  SecretsManagerPermission: !Equals [!Ref SecretsManagerPermissions, true]
-  ApiEnabled: !Equals [!Ref ProvisionApi, true]
-  TracingEnabled: !Equals [!Ref EnableTracing, true]
+  SecretsManagerPermission: !Equals [!Ref SecretsManagerPermissions, 'true']
+  ApiEnabled: !Equals [!Ref ProvisionApi, 'true']
+  TracingEnabled: !Equals [!Ref EnableTracing, 'true']
   CreateUsersTable: !Equals [!Ref UsersTableName, '']
   CreateIdentityProvidersTable: !Equals [!Ref IdentityProvidersTableName, '']
 
@@ -641,11 +641,11 @@ Outputs:
     Description: The VPC that is used with the custom IdP solution.
     Value:
       !If [CreateVPC, !Ref VPC, !Ref VpcId]   
-  Subnets:
+  SubnetList:
     Description: The subnets used by the Lambda function in the custom IdP solution.
     Value:
-      !If [CreateVPC, !Sub "${PrivateSubnet1},${PrivateSubnet2}", !Join [",", !Ref Subnets]]         
-  SecurityGroups:
+      !If [CreateVPC, !Join [",", [!Ref PrivateSubnet1, !Ref PrivateSubnet2]], !Join [",", !Ref Subnets]]         
+  SecurityGroupsList:
     Description: The VPC subnets attached to the Lambda function in the custom IdP solution.
     Value:
-      !If [CreateVPC, !Ref SecurityGroup,  !Join [",", !Ref SecurityGroups]]    
+      !If [CreateVPC, !Ref SecurityGroup,  !Join [",", !Ref SecurityGroups]] 
