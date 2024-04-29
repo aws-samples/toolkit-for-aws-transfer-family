@@ -244,27 +244,29 @@ def lambda_handler(event, context):
         logger.info(
             f"No password provided, performing public key auth."
         )
-        from idp_modules import public_key
+        # Some identity providers have built-in public key support, as specified in their config. If they don't, fall back to the public_key module.
+        if not identity_provider_record.get('public_key_support', False):
+            from idp_modules import public_key 
 
-        public_key.handle_auth(
-            event=event,
-            parsed_username=parsed_username,
-            user_record=user_record,
-            identity_provider_record=identity_provider_record,
-            response_data=response_data,
+            response_data = public_key.handle_auth(
+                event=event,
+                parsed_username=parsed_username,
+                user_record=user_record,
+                identity_provider_record=identity_provider_record,
+                response_data=response_data,
         )
-    else:
-        # Load the identity provider module and perform authentication with the provider
-        identity_provider_module = importlib.import_module(
-            f'idp_modules.{identity_provider_record["module"]}'
-        )
-        response_data = identity_provider_module.handle_auth(
-            event=event,
-            parsed_username=username,
-            user_record=user_record,
-            identity_provider_record=identity_provider_record,
-            response_data=response_data,
-        )
+        else:
+            # Load the identity provider module and perform authentication with the provider
+            identity_provider_module = importlib.import_module(
+                f'idp_modules.{identity_provider_record["module"]}'
+            )
+            response_data = identity_provider_module.handle_auth(
+                event=event,
+                parsed_username=username,
+                user_record=user_record,
+                identity_provider_record=identity_provider_record,
+                response_data=response_data,
+            )
 
     # HomeDirectoryDetails must be a stringified list
     if "HomeDirectoryDetails" in response_data:

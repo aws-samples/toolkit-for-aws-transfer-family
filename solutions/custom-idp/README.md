@@ -131,23 +131,29 @@ Manually, using the `custom-idp.yaml` Serverless Application Model (SAM) templat
 
     ![CloudShell session running](screenshots/ss-deploy-01-cloudshell.png)
 
-2. Clone the solution into your environment:
+2. Install the Python 3.11 into your environment.
+
+    ```
+    sudo yum install python3.11 python3.11-pip -y
+    ```
+
+3. Clone the solution into your environment:
     ```
     cd ~
     git clone https://github.com/aws-samples/toolkit-for-aws-transfer-family.git
     ```
     
-3. Run the following command to run the build script, which downloads all package dependencies and generates archives for the Lambda layer and function used in the solution.
+4. Run the following command to run the build script, which downloads all package dependencies and generates archives for the Lambda layer and function used in the solution.
     ```
-    cd ~/aws-transfer-custom-idp-solution
+    cd ~/toolkit-for-aws-transfer-family/solutions/custom-idp
     ./build.sh
     ```
     Monitor the execution and verify the script completes successfully.
 
-4. Begin the SAM deployment by using the following command
+5. Begin the SAM deployment by using the following command
 
     ```
-    sam deploy --guided
+    sam deploy --guided --capabilities "CAPABILITY_NAMED_IAM"
 
     ```
     At the prompts, provide the following information:
@@ -276,6 +282,9 @@ To get started, you must define one or more identity providers in the DynamoDB t
     "provider": {
       "S": "publickeys"
     },
+    "public_key_support": {
+      "BOOL": true
+    },        
     "config": {
       "M": {
       }
@@ -318,7 +327,7 @@ Once identity providers are defined, user records must be created. Each user rec
     },
     "identity_provider_key": {
       "S": "publickeys"
-    },
+    },  
     "config": {
       "M": {
         "HomeDirectoryDetails": {
@@ -1012,7 +1021,10 @@ The Public Key module is is used to perform authentication with public/private k
   },
   "module": {
     "S": "public_key"
-  }
+  },
+  "public_key_support": {
+    "BOOL": true
+  }     
 }
 ```
 ##### Parameters
@@ -1036,6 +1048,26 @@ Type: String
 Constraints: None
 
 Required: Yes
+
+**module**
+
+The name of the public key module that will be loaded to perform authentication. **This should be set to `public_key`.**
+
+Type: String
+
+Constraints: None
+
+Required: Yes
+
+**public_key_support**
+
+Indicates that the identity provider supports handling public key authentication. **This should always be set to `true` for this module.**
+
+**Type:** Boolean
+
+**Constraints:** None
+
+**Required:** Yes
 
 ##### Example
 
@@ -1171,7 +1203,7 @@ When an AWS Transfer Family custom identity provider authenticates a user, it re
 ## Modifying/updating solution parameters
 If you need to change the parameters that were used to deploy the solution initially, in most cases you can use modify the installer stack and re-run the deployment pipeline.
 
-1. Go to [*Stacks*](https://console.aws.amazon.com/cloudformation/home#/stacks) in the CloudFormation console and select the solution installer stack. Click the **Update** button.
+1. Go to [*Stacks*](https://console.aws.amazon.com/cloudformation/home#/stacks) in the CloudFormation console and select the solution stack. Click the **Update** button.
 2. On the **Update stack** screen, select **Use current template**, then click **Next**. On the **Specify stack details** page, change any parameters needed, then click the **Next** button.
 3. On the **Configure stack options** page, click **Next**.
 4. At the **Review stack** page, review all parameters and settings, click the checkbox next to *I acknowledge that AWS CloudFormation might create IAM resources with custom names*, then click **Submit**. 
@@ -1184,10 +1216,14 @@ If you need to uninstall the solution for any reason, you can do so by deleting 
 2. From the [*Stacks*](https://console.aws.amazon.com/cloudformation/home#/stacks) page in the CloudFormation console, select the solution installer stack. Click **Delete**, then click **Delete** again in the dialog that appears. Wait for the deletion to complete.
 ### Cleanup remaining artifacts
 The following resources are not removed during stack deletion and should be manually removed if no longer required.
-* The DynamoDB tables used for users and identity providers
-* The S3 bucket used for CodePipeline, CodeBuild, and SAM artifacts
-* Cloudwatch Log groups for CodeBuild and Lambda
+* The DynamoDB tables used for users and identity providers (`${AWS::StackName}_users` and `${AWS::StackName_identity_providers}`
+* The S3 bucket used for SAM artifacts (`aws-sam-cli-managed-default-samclisourcebucket-[hash]`)
+* Cloudwatch Log groups for Lambda
 * Lambda layer versions used by the custom IdP Lambda
+
+If you deployed the solution with the pipeline installe (`install.yaml`), these items also need to be cleaned up:
+* The CodeBuild and CodePipeline artifacts bucket (`${AWS::StackName}-${AWS::AccountId}-${AWS::Region}-artifacts`)
+* Cloudwatch Log groups for CodeBuild
 
 ## Logging and troubleshooting
 The solution includes detailed logging to help with troubleshooting. Below are details on how to configure log levels and use logs for troubleshooting.

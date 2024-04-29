@@ -153,8 +153,8 @@ Resources:
           LOGLEVEL: !Ref LogLevel
           AWS_XRAY_TRACING_NAME: !Sub ${AWS::StackName}
       VpcConfig:
-        SubnetIds: !If [CreateVPC, !Sub "${PrivateSubnet1},${PrivateSubnet2}", !Join [',', !Ref Subnets]]
-        SecurityGroupIds: !If [CreateVPC, !Sub "${SecurityGroup}", !Join [',', !Ref SecurityGroups]]
+        SubnetIds: !If [CreateVPC, [!Ref PrivateSubnet1,!Ref PrivateSubnet2], !Ref Subnets]
+        SecurityGroupIds: !If [CreateVPC, [!Ref SecurityGroup], !Ref SecurityGroups]
       Architectures:
       - x86_64
       Policies:
