@@ -14,6 +14,7 @@ Content
 - [Setup Instructions](#setup-instructions)
   - [Prerequisites](#prerequisites)
   - [Deploy the solution](#deploy-the-solution)
+  - [Alternative: Automated deployment pipeline](#alternative-automated-deployment-pipeline)
   - [Deploy an AWS Transfer server](#deploy-an-aws-transfer-server)
   - [Define identity providers](#define-identity-providers)
   - [Define Users](#define-users)
@@ -115,18 +116,65 @@ The solution contains two DynamoDB tables:
 
 ## Setup Instructions
 The custom IDP solution can be deployed with one of two methods:
-1. (Recommended) Automatically, using the `install.yml` CloudFormation template to provision a deployment pipeline linked to this repo or a fork of it. The instructions below walk through this deployment method.
 
-2. Manually, using the `custom-idp.yaml` Serverless Application Model (SAM) template. If you would like to deploy the solution manually, it is recommended you use the [buildspec_build_deploy.yml](pipeline/buildspec_build_deploy.yml) as a reference for the commands used to build and deploy the solution.
+Manually, using the `custom-idp.yaml` Serverless Application Model (SAM) template. If you would like to deploy the solution manually, it is recommended you use the [buildspec_build_deploy.yml](pipeline/buildspec_build_deploy.yml) as a reference for the commands used to build and deploy the solution.
 
 ### Prerequisites
-* A Virtual Private Cloud (VPC) with private subnets with either internet connectivity via NAT Gateway, or a DynamoDB Gateway Endpoint.
-* Appropriate IAM permissions to deploy the `install.yml` CloudFormation template, including but not limited to creating CodePipeline and CodeBuild projects, IAM roles, and IAM policies.
+* A Virtual Private Cloud (VPC) with private subnets with either internet connectivity via NAT Gateway, or a DynamoDB Gateway Endpoint. 
+* Appropriate IAM permissions to deploy the `custom-idp.yaml` CloudFormation template, including but not limited to creating CodePipeline and CodeBuild projects, IAM roles, and IAM policies.
 
 > [!IMPORTANT]  
 > The solution must be deployed in the same AWS account and region as the target AWS Transfer servers. 
 
 ### Deploy the solution
+1. Log into the AWS account you wish to deploy the solution in, switch to the region you will run AWS Transfer in, and start a CloudShell session.
+
+    ![CloudShell session running](screenshots/ss-deploy-01-cloudshell.png)
+
+2. Clone the solution into your environment:
+    ```
+    cd ~
+    git clone https://github.com/aws-samples/toolkit-for-aws-transfer-family.git
+    ```
+    
+3. Run the following command to run the build script, which downloads all package dependencies and generates archives for the Lambda layer and function used in the solution.
+    ```
+    cd ~/aws-transfer-custom-idp-solution
+    ./build.sh
+    ```
+    Monitor the execution and verify the script completes successfully.
+
+4. Begin the SAM deployment by using the following command
+
+    ```
+    sam deploy --guided
+
+    ```
+    At the prompts, provide the following information:
+    | Parameter | Description | Value |
+    | --- | --- | --- |
+    | **Stack name** | **REQUIRED**. The name of the CloudFormation stack that will be created. The stack name is also prefixed to several resources that are created to allow the solution to be deployed multiple times in the same AWS account and region. | *your stack name, i.e. transferidp* |
+    | **CreateVPC** | **REQUIRED**. Set to *`true`* if you you would like the solution to create a VPC for you, otherwise *`false`* | `true` or `false`|
+    | **VPCCIDR** | **CONDITIONALLY REQUIRED**. Must be set if `CreateVPC` is `true`. The CIDR to use for when creating a new VPC. The CIDR should be at least a /24 and will be divided evenly across 4 subnets. Required if CreateVPC is set.  | `true` or `false`|   
+    | **VPCId** | **CONDITIONALLY REQUIRED**. Must be set if `CreateVPC` is `false`. The ID of the VPC to deploy the custom IDP solution into. The VPC specified should have network connectivity to any IdPs that will used for authentication.  | *A VPC ID, i.e. `vpc-abc123def456`* |    
+    | **Subnets** | **CONDITIONALLY REQUIRED**. Must be set if `CreateVPC` is `false`. A list of subnet IDs to attach the Lambda function to. The Lambda is attached to subnets in order to allow private communication to IdPs such as LDAP servers or Active Directory domain controllers. At least one subnet must be specified, and all subnets must be in the same VPC specified above. **IMPORTANT**: The subnets must be able to reach DynamoDB service endpoints. If using public IdP such as Okta, the subnet must also have a route to a NAT Gateway that can forward requests to the internet. *Using a public subnet will not work because Lambda network interfaces are not assigned public IP addresses*.  | *comma-separated list of subnet IDs, i.e. `subnet-123abc,subnet-456def`* |
+    | **SecurityGroups** | **CONDITIONALLY REQUIRED**. Must be set if `CreateVPC` is false. A list of security group IDs to assign to the Lambda function. This is used to control inbound and outbound access to/from the ENI the Lambda function uses for network connectivity. At least one security group must be specified and the security group must belong to the VPC specified above. | *comma-separated list of Security Group IDs, i.e. `sg-abc123`* |
+    | **UserNameDelimiter**  | The delimiter to use when specifying both the username and IdP name during login. Supported delimiter formats: <ul><li>[username]**&#64;**[IdP-name]</li><li>[username]**$**[IdP-name]</li><li>[IdP-name]**/**[username]</li><li>[IdP-name]**&#92;&#92;**[username]</li></ul> | One of the following values: <ul><li>**&#64;**</li><li>**$**</li><li>**/**</li><li>**&#92;&#92;**</li></ul> |    
+    | **SecretsManagerPermissions** | Set to *`true`* if you will use the Secrets Manager authentication module, otherwise *`false`* | `true` or `false`|
+    | **ProvisionApi** | When set to *`true`* an API Gateway REST API will be provisioned and integrated with the custom IdP Lambda. Provisioning and using an API Gateway REST API with AWS Transfer is useful if you intend to [use AWS Web Application Firewall (WAF) WebACLs to restrict requests to authenticate to specific IP addresses](https://aws.amazon.com/blogs/storage/securing-aws-transfer-family-with-aws-web-application-firewall-and-amazon-api-gateway/) or apply rate limiting. | `true` or `false` |    
+    | **LogLevel** | Sets the verbosity of logging for the Lambda IdP function. This should be set to `INFO` by default and `DEBUG` when troubleshooting. <br /><br />**IMPORTANT** When set to `DEBUG`, sensitive information may be included in log entries. | `INFO` or `DEBUG` <br /> <br /> *`INFO` recommended as default* |
+    | **EnableTracing** | Set to *`true`* if you would like to enable AWS X-Ray tracing on the solution. <br /><br /> Note: X-Ray has additional costs. | `true` or `false` |
+    | **UsersTableName** | *Optional*. The name of an *existing* DynamoDB table that contains the details of each AWS Transfer user (i.e. IdP to use, IAM role, logic directory list) are stored. Useful if you have already created a DynamoDB table and records for users **Leave this value empty if you want a table to be created for you**. | *blank* if a new table should be created, otherwise the name of an existing *users* table in DynamoDB |
+    | **IdentityProvidersTableName** | *Optional*. The name of an *existing* DynamoDB table that contains the details of each AWS Transfer custom IdPs (i.e. IdP name, server URL, parameters) are stored. Useful if you have already created a DynamoDB table and records for IdPs **Leave this value empty if you want a table to be created for you**. | *blank* if a new table should be created, otherwise the name of an existing *IdPs* table in DynamoDB |  
+    | **Confirm changes before deploy** | Prompt to confirm changes after a change set is created. | `y` (default) | 
+    | **Allow SAM CLI IAM role creation** | Allow SAM to create a CLI IAM role used for deployments | `y` (default) |
+    | **Disable rollback** | Disable rollback if stack creation and resource provisioning fails (can be useful for troubleshooting) | `n` (default) |
+    | **Save arguments to configuration file** | Save the parameters specified above to a configuration file for reuse. | `y` (default) | 
+    | **SAM configuration file** | The name of the file to save arguments to | `samconfig.toml` (default) |
+    | **SAM configuration environment** | The name of the configuration environment to use | `default` (default) |    
+
+### Alternative: Automated deployment pipeline 
+An alternate method to deploying the solution is through the `install.yml` CloudFormation template. This template provisions a CodePipeline deployment pipeline linked to this repository. You can also fork this repository to private repo and use that instead. The instructions below walk through this deployment method. 
 
 1. Open and save the [`install.yaml`](install.yaml) template.
 
@@ -139,9 +187,9 @@ The custom IDP solution can be deployed with one of two methods:
     | Parameter | Description | Value |
     | --- | --- | --- |
     | **Stack name** | **REQUIRED**. The name of the CloudFormation stack that will be created. The stack name is also prefixed to several resources that are created to allow the solution to be deployed multiple times in the same AWS account and region. | *your stack name, i.e. transferidp* |
-    | **VPCId** | **REQUIRED**. The ID of the VPC to deploy the custom IDP solution into. The VPC specified should have network connectivity to any IdPs that will used for authentication.  | *A VPC ID, i.e. `vpc-abc123def456`* |    
-    | **Subnets** | **REQUIRED**. A list of subnet IDs to attach the Lambda function to. The Lambda is attached to subnets in order to allow private communication to IdPs such as LDAP servers or Active Directory domain controllers. At least one subnet must be specified, and all subnets must be in the same VPC specified above. **IMPORTANT**: The subnets must be able to reach DynamoDB service endpoints. If using public IdP such as Okta, the subnet must also have a route to a NAT Gateway that can forward requests to the internet. *Using a public subnet will not work because Lambda network interfaces are not assigned public IP addresses*.  | *comma-separated list of subnet IDs, i.e. `subnet-123abc,subnet-456def`* |
-    | **SecurityGroups** | **REQUIRED**. A list of security group IDs to assign to the Lambda function. This is used to control inbound and outbound access to/from the ENI the Lambda function uses for network connectivity. At least one security group must be specified and the security group must belong to the VPC specified above. | *comma-separated list of Security Group IDs, i.e. `sg-abc123`* |
+    | **VPCId** | **CONDITIONALLY REQUIRED**. Must be set if `CreateVPC` is false. The ID of the VPC to deploy the custom IDP solution into. The VPC specified should have network connectivity to any IdPs that will used for authentication.  | *A VPC ID, i.e. `vpc-abc123def456`* |    
+    | **Subnets** | **CONDITIONALLY REQUIRED**. A list of subnet IDs to attach the Lambda function to. The Lambda is attached to subnets in order to allow private communication to IdPs such as LDAP servers or Active Directory domain controllers. At least one subnet must be specified, and all subnets must be in the same VPC specified above. **IMPORTANT**: The subnets must be able to reach DynamoDB service endpoints. If using public IdP such as Okta, the subnet must also have a route to a NAT Gateway that can forward requests to the internet. *Using a public subnet will not work because Lambda network interfaces are not assigned public IP addresses*.  | *comma-separated list of subnet IDs, i.e. `subnet-123abc,subnet-456def`* |
+    | **SecurityGroups** | **CONDITIONALLY REQUIRED**. Must be set if `CreateVPC` is false. A list of security group IDs to assign to the Lambda function. This is used to control inbound and outbound access to/from the ENI the Lambda function uses for network connectivity. At least one security group must be specified and the security group must belong to the VPC specified above. | *comma-separated list of Security Group IDs, i.e. `sg-abc123`* |
     | **UserNameDelimiter**  | The delimiter to use when specifying both the username and IdP name during login. Supported delimiter formats: <ul><li>[username]**&#64;**[IdP-name]</li><li>[username]**$**[IdP-name]</li><li>[IdP-name]**/**[username]</li><li>[IdP-name]**&#92;&#92;**[username]</li></ul> | One of the following values: <ul><li>**&#64;**</li><li>**$**</li><li>**/**</li><li>**&#92;&#92;**</li></ul> |    
     | **SecretsManagerPermissions** | Set to *`true`* if you will use the Secrets Manager authentication module, otherwise *`false`* | `true` or `false`|
     | **ProvisionApi** | When set to *`true`* an API Gateway REST API will be provisioned and integrated with the custom IdP Lambda. Provisioning and using an API Gateway REST API with AWS Transfer is useful if you intend to [use AWS Web Application Firewall (WAF) WebACLs to restrict requests to authenticate to specific IP addresses](https://aws.amazon.com/blogs/storage/securing-aws-transfer-family-with-aws-web-application-firewall-and-amazon-api-gateway/) or apply rate limiting. | `true` or `false` |    
@@ -153,12 +201,6 @@ The custom IDP solution can be deployed with one of two methods:
     | **RepoOwner** | *Optional*. The owner of the repository where the custom IdP solution code is retrieved from during deployment. Default is `aws-samples` on Github. **Only change this if you have forked the repo for customization** | `aws-samples` if using the public aws-samples repo, otherwise the name of your repo. |  
     | **CodeStarConnectionArn** | *Optional*. The ARN of the [CodeStar/Developer Tools Connection](https://docs.aws.amazon.com/dtconsole/latest/userguide/connections.html) that will be used to access the repo. Default is blank, because a connection is not needed to access a public repo on Github. **Only change this if you have forked the repo for customization and are using a private repo.** | *blank* if using the public aws-samples repo, otherwise the ARN of the Connection, i.e. `arn:aws:codestar-connections:[REGION]:[ACCOUNTID]:connection/8d27eabf-90c9-4d52-b211-e504427e101b`. | 
     | **ProjectSubfolder** | *Optional*. The path to the custom IdP solution source code within the repo. In the *toolkit-for-aws-transfer-family* repo, this should always be `solutions/custom-idp`. **Only change this if you have forked the repo and moved the source code.** | `solutions/custom-idp` if using the public aws-samples repo. |     
-    | **Confirm changes before deploy** | Prompt to confirm changes after a change set is created. | `y` (default) | 
-    | **Allow SAM CLI IAM role creation** | Allow SAM to create a CLI IAM role used for deployments | `y` (default) |
-    | **Disable rollback** | Disable rollback if stack creation and resource provisioning fails (can be useful for troubleshooting) | `n` (default) |
-    | **Save arguments to configuration file** | Save the parameters specified above to a configuration file for reuse. | `y` (default) | 
-    | **SAM configuration file** | The name of the file to save arguments to | `samconfig.toml` (default) |
-    | **SAM configuration environment** | The name of the configuration environment to use | `default` (default) |
     
     Once the parameters are set appropriately, click the **Next** button.
 
