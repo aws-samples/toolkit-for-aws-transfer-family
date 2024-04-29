@@ -436,10 +436,10 @@ Resources:
                 - 'apigateway:TagResource'
                 - 'apigateway:UntagResource'
               Resource:
-                - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/apis/*/integrations*'
-                - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/apis/*/stages*'
-                - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/apis/*/authorizers*'
-                - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/apis/*/routes*'
+                - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/restapis/*/integrations*'
+                - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/restapis/*/stages*'
+                - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/restapis/*/authorizers*'
+                - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/restapis/*/routes*'
                 - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/tags/arn%3Aaws%3Aapigateway%3A${AWS::Region}%3A%3A%2Fv2%2Fapis%2F*'
             - Sid: APIGATEWAYMANAGEAPI
               Effect: Allow
@@ -450,7 +450,7 @@ Resources:
                 - 'apigateway:POST'
                 - 'apigateway:GET'
               Resource:
-                - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/apis'
+                - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/restapis'
               Condition:
                 StringEquals:
                   'apigateway:Request/ApiName': 'Custom Identity Provider API for AWS Transfer'
@@ -463,7 +463,7 @@ Resources:
                 - 'apigateway:POST'
                 - 'apigateway:GET'
               Resource:
-                - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/apis/*'
+                - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/restapis/*'
               Condition:
                 StringEquals:
                   'apigateway:Resource/ApiName': 'Custom Identity Provider API for AWS Transfer'
@@ -472,7 +472,7 @@ Resources:
               Action:
                 - 'apigateway:GET'
               Resource:
-                - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/apis/*'
+                - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/restapis/*'
   CodeBuildProjectTestVPCConnectivity:
     Type: AWS::CodeBuild::Project
     Properties:

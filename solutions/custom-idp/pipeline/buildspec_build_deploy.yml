@@ -19,7 +19,7 @@ phases:
       - mkdir -p "${ARTIFACTS_DIR}/python"    
       - pipenv requirements > "${ARTIFACTS_DIR}/requirements.txt"
       - python3 -m pip install -r "${ARTIFACTS_DIR}/requirements.txt" -t "{$ARTIFACTS_DIR}/python"    
-      - sam build --template "custom-idp.yaml" --debug
+      - sam build --template "custom-idp.yaml"
       - sam deploy  --stack-name "${StackName}"
                     --s3-bucket "${ARTIFACTS_BUCKET}"
                     --s3-prefix sam-artifacts/
