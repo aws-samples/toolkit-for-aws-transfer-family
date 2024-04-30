@@ -200,7 +200,7 @@ Resources:
   ApplicationResourceGroup:
     Type: AWS::ResourceGroups::Group
     Properties:
-      Name: !Sub ApplicationInsights-${AWS::StackName}
+      Name: !Sub ${AWS::StackName}
       ResourceQuery:
         Type: CLOUDFORMATION_STACK_1_0
 
@@ -217,6 +217,7 @@ Resources:
   ApiCloudWatchLogsRole:
     Type: AWS::IAM::Role
     Properties:
+      RoleName: !Sub ${AWS::StackName}-api-role
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:

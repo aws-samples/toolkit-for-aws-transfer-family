@@ -5,6 +5,7 @@ name = "pypi"
 
 [packages]
 boto3 = "*"
+argon2 = "*"
 ldap3 = "*"
 urllib3 = "*"
 aws-xray-sdk = "*"

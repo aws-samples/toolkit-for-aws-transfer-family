@@ -25,18 +25,22 @@ Content
 - [Identity provider modules](#identity-provider-modules)
   - [How the identity provider modules work](#how-the-identity-provider-modules-work)
   - [Identity provider module reference](#identity-provider-module-reference)
-    - [LDAP and Active Directory](#ldap-and-active-directory)
+    - [Argon2](#argon2)
       - [DynamoDB Record Schema](#dynamodb-record-schema)
       - [Parameters](#parameters)
       - [Example](#example)
-    - [Okta](#okta)
+    - [LDAP and Active Directory](#ldap-and-active-directory)
       - [DynamoDB Record Schema](#dynamodb-record-schema-1)
       - [Parameters](#parameters-1)
       - [Example](#example-1)
-    - [Public Key](#public-key)
+    - [Okta](#okta)
       - [DynamoDB Record Schema](#dynamodb-record-schema-2)
       - [Parameters](#parameters-2)
       - [Example](#example-2)
+    - [Public Key](#public-key)
+      - [DynamoDB Record Schema](#dynamodb-record-schema-3)
+      - [Parameters](#parameters-3)
+      - [Example](#example-3)
     - [Secrets Manager](#secrets-manager)
 - [AWS Transfer session settings inheritance](#aws-transfer-session-settings-inheritance)
   - [user record](#user-record)
@@ -552,6 +556,119 @@ Any module-specific settings are stored in the `config` value of the record with
 
 
 ### Identity provider module reference
+
+#### Argon2
+The Argon2 module allows you to generate and use [Argon2](https://en.wikipedia.org/wiki/Argon2) hashed passwords that are stored in the `user` record for authentication. 
+
+> [!NOTE]  
+> To use this module, you must generate an argon2 hash and store it in an `argon2_password` field of the `config` for each `user` record. See the **Examples** section below for more details.
+
+##### DynamoDB Record Schema
+```json
+{
+  "provider": {
+    "S": "[provider name]"
+  },
+  "config": {
+  },
+  "module": {
+    "S": "argon2"
+  }     
+}
+```
+##### Parameters
+
+**provider**
+
+A name used for referencing the provider in the `users` table. This value is also used when users specify an identity provider during authentication (e.g. `username@provider`).
+
+**Type:** String
+
+**Constraints:** None
+
+**Required:** Yes
+
+**module**
+
+The name of the public key module that will be loaded to perform authentication. **This should be set to `argon2`.**
+
+Type: String
+
+Constraints: None
+
+Required: Yes
+
+##### Example
+
+The following example configures the argon2 provider with a provider name `local_password`. 
+
+```json
+{
+  "provider": {
+    "S": "local_password"
+  },
+  "config": {
+    "M": {
+    }
+  },
+  "module": {
+    "S": "argon2"
+  }
+}
+```
+
+The following is an example of a `user` record that uses the `argon2` identity provider defined above. This shows the `argon2_hash` field that stores the password hash.
+
+```json
+{
+    "user": {
+        "S": "johnsmith"
+    },
+    "identity_provider_key": {
+        "S": "local_password"
+    },
+    "config": {
+      "argon2_password": {
+        "S": "[PASSWORD HASH]"
+      },
+        "M": {
+            "HomeDirectoryDetails": {
+                "L": [{
+                        "M": {
+                            "Entry": {
+                                "S": "/home"
+                            },
+                            "Target": {
+                                "S": "organization-bucket/users/johnsmith"
+                            }
+                        }
+                    },
+                    {
+                        "M": {
+                            "Entry": {
+                                "S": "/finance"
+                            },
+                            "Target": {
+                                "S": "organization-bucket/departments/finance"
+                            }
+                        }
+                    }
+                ]
+            },
+            "HomeDirectoryType": {
+                "S": "LOGICAL"
+            }
+        }
+    },
+    "ipv4_allow_list": {
+        "SS": [
+            "172.31.0.0/16",
+            "192.168.10.0/24"
+        ]
+    }
+}
+```
+
 #### LDAP and Active Directory
 The `ldap` module supports authentication with Active Directory and LDAP servers. Both LDAP and LDAPS are supported. User attributes can be retrieved and mapped to the server response, such as `Uid` and `Gid`. 
 

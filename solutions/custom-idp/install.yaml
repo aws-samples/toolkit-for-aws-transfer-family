@@ -377,7 +377,7 @@ Resources:
             - Effect: Allow
               Action:
                 - "iam:AttachRolePolicy"
-                - "iam:DeleteRolePolicy"
+                - "iam:DetachRolePolicy"
                 - "iam:CreateRole"
                 - "iam:DeleteRole"
                 - "iam:UpdateRole"
@@ -440,6 +440,8 @@ Resources:
                 - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/restapis/*/stages*'
                 - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/restapis/*/authorizers*'
                 - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/restapis/*/routes*'
+                - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/restapis/*/models*'
+                - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/restapis/*/resources*'
                 - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/tags/arn%3Aaws%3Aapigateway%3A${AWS::Region}%3A%3A%2Fv2%2Fapis%2F*'
             - Sid: APIGATEWAYMANAGEAPI
               Effect: Allow
