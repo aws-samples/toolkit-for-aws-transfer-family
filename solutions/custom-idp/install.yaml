@@ -388,6 +388,7 @@ Resources:
                 - "iam:ListRolePolicies"
                 - "iam:PutRolePolicy" 
                 - "iam:TagRole"
+                - "iam:PassRole"
               Resource:
                 - !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${AWS::StackName}-*"
             - Effect: Allow
@@ -436,6 +437,7 @@ Resources:
                 - 'apigateway:TagResource'
                 - 'apigateway:UntagResource'
               Resource:
+                - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/account'
                 - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/restapis/*/integrations*'
                 - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/restapis/*/stages*'
                 - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/restapis/*/authorizers*'
