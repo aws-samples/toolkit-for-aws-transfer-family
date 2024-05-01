@@ -421,11 +421,13 @@ Resources:
                 - "lambda:GetFunction"
                 - "lambda:GetFunctionCodeSigningConfig"
                 - "lambda:GetRuntimeManagementConfig"  
-                - "lambda:RemovePermission"              
+                - "lambda:RemovePermission"    
+                - "lambda:TagResource"        
               Resource: !Sub 'arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${AWS::StackName}-*'
             - Effect: Allow
               Action: 
                 - "lambda:PublishLayerVersion"
+                - "lambda:GetLayerVersion"
               Resource: !Sub 'arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:layer:${AWS::StackName}-*'
             - Sid: APIGATEWAY
               Effect: Allow
@@ -438,6 +440,7 @@ Resources:
                 - 'apigateway:UntagResource'
               Resource:
                 - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/account'
+                - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/restapis/*/deployments*'
                 - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/restapis/*/integrations*'
                 - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/restapis/*/stages*'
                 - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/restapis/*/authorizers*'
