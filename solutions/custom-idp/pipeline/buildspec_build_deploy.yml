@@ -18,7 +18,8 @@ phases:
       - rm -rf  "${ARTIFACTS_DIR}/python"
       - mkdir -p "${ARTIFACTS_DIR}/python"    
       - pipenv requirements > "${ARTIFACTS_DIR}/requirements.txt"
-      - python3 -m pip install --platform manylinux2014_x86_64 --only-binary=:all: -r "${ARTIFACTS_DIR}/requirements.txt" -t "{$ARTIFACTS_DIR}/python"    
+      - | 
+        python3 -m pip install --platform manylinux2014_x86_64 --only-binary=:all: -r "${ARTIFACTS_DIR}/requirements.txt" -t "{$ARTIFACTS_DIR}/python"    
       - sam build --template "custom-idp.yaml"
       - sam deploy  --stack-name "${StackName}"
                     --s3-bucket "${ARTIFACTS_BUCKET}"
