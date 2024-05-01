@@ -417,6 +417,7 @@ Resources:
                 - "lambda:AddPermission"
                 - "lambda:CreateFunction"
                 - "lambda:UpdateFunction"
+                - "lambda:UpdateFunctionCode"
                 - "lambda:DeleteFunction"                
                 - "lambda:GetFunction"
                 - "lambda:GetFunctionCodeSigningConfig"

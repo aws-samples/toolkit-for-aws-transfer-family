@@ -22,12 +22,12 @@ def handle_auth(
 ):
     logger.debug(f"User record: {user_record}")  
 
-    if event.get("password", "").strip() == "" :
+    if authn_method == util.AuthenticationMethod.PUBLIC_KEY:
         raise Argon2IdpModuleError(
             "Password not specified, this provider does not support public key auth."
     )
     user_record_config = user_record["config"]
-    hashed_password = user_record_config.get("argon2_password", "")
+    hashed_password = user_record_config.get("argon2_hash", "")
     logger.debug(f"Hashed password: {hashed_password}")
     
 
