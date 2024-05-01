@@ -1,11 +1,8 @@
-import json
 import logging
 import os
-import re
-import urllib.parse
 
 import urllib3
-from aws_xray_sdk.core import patch_all, xray_recorder
+from aws_xray_sdk.core import patch_all
 from idp_modules import util
 
 patch_all()
@@ -18,7 +15,7 @@ http = urllib3.PoolManager()
 
 
 class OktaIdpModuleError(util.IdpModuleError):
-    "Used to raise module-specific exceptions"
+    """Used to raise module-specific exceptions"""
     pass
 
 
@@ -64,7 +61,7 @@ def okta_authenticate(url, username, password, mfa_token=None):
             )
             return primary_response_json
     else:
-        logger.warn(
+        logger.warning(
             f"Authentication status was not SUCCESS for user {username}. Status returned: {primary_response_status}"
         )
         if primary_response_status == "MFA_REQUIRED":
@@ -102,13 +99,13 @@ def okta_authenticate(url, username, password, mfa_token=None):
         )
 
         if mfa_response.status != 200:
-            logger.warn(
+            logger.warning(
                 f"MFA failed for factor Id {mfa_factor.get('id', '')}; Type {mfa_factor.get('factorType', '')}; Provider {mfa_factor.get('provider', '')}"
             )
         else:
             mfa_response_status = primary_response_json.get("status", "<none>")
             if mfa_response_status == "SUCCESS":
-                logger.warn(
+                logger.warning(
                     f"MFA authentication status for was not SUCCESS for user {username}; factor Id {mfa_factor.get('id', '')}; Type {mfa_factor.get('factorType', '')}; Provider {mfa_factor.get('provider', '')}. Status returned: {mfa_response_status}. "
                 )
             else:
@@ -330,7 +327,7 @@ def handle_auth(
             )
             response_data["Role"] = okta_resolved_attributes["Role"]
         elif okta_ignore_missing_attributes:
-            logger.warn(
+            logger.warning(
                 f"Okta user profile attribute '{okta_attributes['Role']}' for 'Role' was empty of missing. Skipping."
             )
         else:
@@ -343,7 +340,7 @@ def handle_auth(
             logger.info("Applying Policy from Okta user profile attributes")
             response_data["Policy"] = okta_resolved_attributes["Policy"]
         elif okta_ignore_missing_attributes:
-            logger.warn(
+            logger.warning(
                 f"Okta user profile attribute '{okta_attributes['Policy']}' for 'Policy' was empty of missing. Skipping."
             )
         else:
@@ -363,7 +360,7 @@ def handle_auth(
             response_data["PosixProfile"]["Uid"] = okta_resolved_attributes["Uid"]
             response_data["PosixProfile"]["Gid"] = okta_resolved_attributes["Gid"]
         elif okta_ignore_missing_attributes:
-            logger.warn(
+            logger.warning(
                 f"Okta user profile attributes '{okta_attributes['Uid']}' for 'Uid' and/or '{okta_attributes['Gid']}' for 'Gid' were empty of missing. Skipping."
             )
         else:

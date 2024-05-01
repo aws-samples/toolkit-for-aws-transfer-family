@@ -12,7 +12,7 @@ logger.setLevel(logging.DEBUG if os.environ.get("LOGLEVEL", "DEBUG") else loggin
 
 
 class Argon2IdpModuleError(util.IdpModuleError):
-    "Used to raise module-specific exceptions"
+    """Used to raise module-specific exceptions"""
     pass
 
 
@@ -22,7 +22,7 @@ def handle_auth(
 ):
     logger.debug(f"User record: {user_record}")  
 
-    if authn_method == util.AuthenticationMethod.PUBLIC_KEY:
+    if authn_method != util.AuthenticationMethod.PASSWORD:
         raise Argon2IdpModuleError(
             "Password not specified, this provider does not support public key auth."
     )
