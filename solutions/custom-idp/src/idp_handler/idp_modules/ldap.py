@@ -13,7 +13,7 @@ logger.setLevel(logging.DEBUG if os.environ.get("LOGLEVEL", "DEBUG") else loggin
 
 
 class LdapIdpModuleError(util.IdpModuleError):
-    "Used to raise module-specific exceptions"
+    """Used to raise module-specific exceptions"""
     pass
 
 
@@ -23,23 +23,23 @@ def handle_auth(
 ):
     logger.debug(f"User record: {user_record}")
 
-    if authn_method == util.AuthenticationMethod.PUBLIC_KEY:
+    if authn_method != util.AuthenticationMethod.PASSWORD:
         raise LdapIdpModuleError(
             "Password not specified, this provider does not support public key auth."
         )
 
-    user_record_config = user_record["config"]
-    ldap_host = identity_provider_record["config"]["server"]
-    ldap_port = int(identity_provider_record["config"].get("port", 636))
-    ldap_ssl = identity_provider_record["config"].get("ssl", True)
-    ldap_ssl_verify = identity_provider_record["config"].get("ssl_verify", True)
-    ldap_attributes = identity_provider_record["config"].get("attributes", {})
-    ldap_search_base = identity_provider_record["config"]["search_base"]
-    ldap_ignore_missing_attributes = identity_provider_record["config"].get(
+    identity_provider_config = identity_provider_record["config"]
+    ldap_host = identity_provider_config["server"]
+    ldap_port = int(identity_provider_config.get("port", 636))
+    ldap_ssl = identity_provider_config.get("ssl", True)
+    ldap_ssl_verify = identity_provider_config.get("ssl_verify", True)
+    ldap_attributes = identity_provider_config.get("attributes", {})
+    ldap_search_base = identity_provider_config["search_base"]
+    ldap_ignore_missing_attributes = identity_provider_config.get(
         "ignore_missing_attributes", False
     )
-    if "domain" in identity_provider_record["config"]:
-        ldap_domain = identity_provider_record["config"]["domain"]
+    if "domain" in identity_provider_config:
+        ldap_domain = identity_provider_config["domain"]
         domain_username = f"{ldap_domain}\{parsed_username}"
     else:
         domain_username = parsed_username
@@ -123,7 +123,7 @@ def handle_auth(
             )
             response_data["Role"] = ldap_resolved_attributes["Role"]
         elif ldap_ignore_missing_attributes:
-            logger.warn(
+            logger.warning(
                 f"LDAP attribute {ldap_attributes['Role']} for 'Role' was empty of missing. Skipping."
             )
         else:
@@ -136,7 +136,7 @@ def handle_auth(
             logger.info("Applying Policy from LDAP Attributes")
             response_data["Policy"] = ldap_resolved_attributes["Policy"]
         elif ldap_ignore_missing_attributes:
-            logger.warn(
+            logger.warning(
                 f"LDAP attribute {ldap_attributes['Policy']} for 'Policy' was empty of missing. Skipping."
             )
         else:
@@ -156,7 +156,7 @@ def handle_auth(
             response_data["PosixProfile"]["Uid"] = ldap_resolved_attributes["Uid"]
             response_data["PosixProfile"]["Gid"] = ldap_resolved_attributes["Gid"]
         elif ldap_ignore_missing_attributes:
-            logger.warn(
+            logger.warning(
                 f"LDAP attributes {ldap_attributes['Uid']} for 'Uid' and/or {ldap_attributes['Gid']} for 'Gid' were empty of missing. Skipping."
             )
         else:

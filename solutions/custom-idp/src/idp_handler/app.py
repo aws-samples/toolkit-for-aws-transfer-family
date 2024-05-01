@@ -1,13 +1,11 @@
 # This file is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
 # CONDITIONS OF ANY KIND, either express or implied.
 
-import datetime
 import importlib
 import ipaddress
 import json
 import logging
 import os
-import random
 
 import boto3
 from aws_xray_sdk.core import patch_all, xray_recorder
@@ -28,7 +26,7 @@ IDENTITY_PROVIDERS_TABLE = boto3.resource("dynamodb").Table(IDENTITY_PROVIDERS_T
 
 
 class IdpHandlerException(Exception):
-    "Used to raise handler exceptions"
+    """Used to raise handler exceptions"""
     pass
 
 
@@ -166,7 +164,7 @@ def lambda_handler(event, context):
         )
         response_data["Role"] = identity_provider_record["config"]["Role"]
     else:
-        logger.warn(
+        logger.warning(
             f"Role arn not found in user record for {input_username} or identity provider record {identity_provider}. It may still be provided by identity provider response."
         )
 
@@ -213,7 +211,7 @@ def lambda_handler(event, context):
         ]
         response_data["HomeDirectoryType"] = "PATH"
     else:
-        logger.warn(
+        logger.warning(
             f"HomeDirectory and HomeDirectoryDetails in user record for {input_username} or identity provider record {identity_provider}"
         )
 

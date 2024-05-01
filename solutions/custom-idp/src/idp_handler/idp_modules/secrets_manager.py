@@ -10,7 +10,7 @@ patch_all()
 
 
 class SecretsManagerIdpModuleError(util.IdpModuleError):
-    "Used to raise module-specific exceptions"
+    """Used to raise module-specific exceptions"""
     pass
 
 

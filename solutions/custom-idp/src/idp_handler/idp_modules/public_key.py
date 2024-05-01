@@ -11,7 +11,7 @@ logger.setLevel(logging.DEBUG if os.environ.get("LOGLEVEL", "DEBUG") else loggin
 
 
 class PublicKeyIdpModuleError(util.IdpModuleError):
-    "Used to raise module-specific exceptions"
+    """Used to raise module-specific exceptions"""
     pass
 
 
