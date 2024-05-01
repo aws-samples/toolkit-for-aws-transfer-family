@@ -17,7 +17,7 @@ class PublicKeyIdpModuleError(util.IdpModuleError):
 
 @xray_recorder.capture()
 def handle_auth(
-    event, parsed_username, user_record, identity_provider_record, response_data
+    event, parsed_username, user_record, identity_provider_record, response_data, authn_method
 ):
     logger.debug(f"User record: {user_record}")
 

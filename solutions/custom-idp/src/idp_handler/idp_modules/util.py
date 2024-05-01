@@ -6,6 +6,7 @@ import boto3
 from aws_xray_sdk.core import patch_all, xray_recorder
 from botocore.config import Config
 from botocore.exceptions import ClientError
+from enum import Enum
 
 patch_all()
 
@@ -18,6 +19,10 @@ boto3_config = Config(retries={"max_attempts": 10, "mode": "standard"})
 class IdpModuleError(Exception):
     "Used to raise IdP module exceptions"
     pass
+
+class AuthenticationMethod(Enum):
+    PASSWORD = 1
+    PUBLIC_KEY = 2
 
 
 @xray_recorder.capture()

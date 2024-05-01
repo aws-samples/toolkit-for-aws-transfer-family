@@ -19,11 +19,11 @@ class LdapIdpModuleError(util.IdpModuleError):
 
 @xray_recorder.capture()
 def handle_auth(
-    event, parsed_username, user_record, identity_provider_record, response_data
+    event, parsed_username, user_record, identity_provider_record, response_data, authn_method
 ):
     logger.debug(f"User record: {user_record}")
 
-    if event.get("password", "").strip() == "" :
+    if authn_method == util.AuthenticationMethod.PUBLIC_KEY:
         raise LdapIdpModuleError(
             "Password not specified, this provider does not support public key auth."
         )
