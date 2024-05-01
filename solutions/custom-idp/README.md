@@ -48,6 +48,7 @@ Content
 - [Uninstall the solution](#uninstall-the-solution)
   - [Cleanup remaining artifacts](#cleanup-remaining-artifacts)
 - [Logging and troubleshooting](#logging-and-troubleshooting)
+  - [Testing custom identity providers](#testing-custom-identity-providers)
   - [Accessing logs](#accessing-logs)
   - [Setting the log level](#setting-the-log-level)
 - [FAQ](#faq)
@@ -560,8 +561,10 @@ Any module-specific settings are stored in the `config` value of the record with
 #### Argon2
 The Argon2 module allows you to generate and use [Argon2](https://en.wikipedia.org/wiki/Argon2) hashed passwords that are stored in the `user` record for authentication. 
 
+This module serves as a method to define "local" user credentials within the custom idp solution. It is not recommended that this method be used at any scale in a production environment since this solution does not contain self-service password management functionality for end users.
+
 > [!NOTE]  
-> To use this module, you must generate an argon2 hash and store it in an `argon2_password` field of the `config` for each `user` record. See the **Examples** section below for more details.
+> To use this module, you must generate an argon2 hash and store it in an `argon2_hash` field of the `config` for each `user` record. See the **Examples** section below for more details.
 
 ##### DynamoDB Record Schema
 ```json
@@ -590,7 +593,7 @@ A name used for referencing the provider in the `users` table. This value is als
 
 **module**
 
-The name of the public key module that will be loaded to perform authentication. **This should be set to `argon2`.**
+The name of the module that will be loaded to perform authentication. **This should be set to `argon2`.**
 
 Type: String
 
@@ -628,8 +631,8 @@ The following is an example of a `user` record that uses the `argon2` identity p
         "S": "local_password"
     },
     "config": {
-      "argon2_password": {
-        "S": "[PASSWORD HASH]"
+      "argon2_hash": {
+        "S": "$argon2i$v=19$m=4096,t=3,p=$argon2i$v=19$m=4096,t=3,p=1$Q1JYWUZvSExndGwxVFBKVDdnUUlUMXpCVlpjTUJibbbbbbbb+2/GwZZmGUN3UiclEIXWX3bbbbbbbbb"
       },
         "M": {
             "HomeDirectoryDetails": {
@@ -668,6 +671,12 @@ The following is an example of a `user` record that uses the `argon2` identity p
     }
 }
 ```
+tr -dc 'A-Za-z0-9!"#$%&'\''()*+,-./:;<=>?@[\]^_`{|}~' </dev/urandom | head -c 32; echo
+On system with the `argon2` package/binaries installed, a hash can be generated for testing using this command: 
+```bash
+unset -v password; set +o allexport; echo "Enter password"; IFS= read -rs password < /dev/tty; printf '%s' "$password" | argon2 $(head /dev/urandom | LC_ALL=C tr -dc A-Za-z0-9 | head -c 32; echo) -e; unset -v password;
+```
+Copy the hash and paste it into the `argon_hash` field in the `user` record above. 
 
 #### LDAP and Active Directory
 The `ldap` module supports authentication with Active Directory and LDAP servers. Both LDAP and LDAPS are supported. User attributes can be retrieved and mapped to the server response, such as `Uid` and `Gid`. 
@@ -1344,6 +1353,19 @@ If you deployed the solution with the pipeline installe (`install.yaml`), these 
 
 ## Logging and troubleshooting
 The solution includes detailed logging to help with troubleshooting. Below are details on how to configure log levels and use logs for troubleshooting.
+
+### Testing custom identity providers
+The AWS Transfer console has a built-in utility to test custom identity providers that use the password authentication method. You can use this to see the output returned when authentication request is made to the custom identity provider, from the viewpoint of the AWS Transfer service. To use the utility, navigate to your [**AWS Transfer Family Servers**](https://console.aws.amazon.com/transfer/servers) in the console, open the details of of the server, and select **Actions > Test** from the upper right corner. 
+
+> [!NOTE]  
+> The identity provider tester works with password authentication only. Public key authentication is not supported. We recommend using the identity provier logs, as described below, for further troubleshooting.
+>
+
+A successful response will include the session setup details, such as `HomeDirectoryDetails`. Authentication failures or other errors should result in an exception in most cases. An empty response would also indicate an authentication failure. 
+
+The example below shows an authentication failure because of an incorrect password when using the `argon2` module. 
+
+![A screenshot of the identity provider testing console showing a test result](screenshots/ss-troubleshooting-idptest.png)
 
 ### Accessing logs
 The Lambda function writes all Logs to Cloudwatch Logs, which can be accessed from the [Cloudwatch console](https://console.aws.amazon.com/cloudwatch/home) in the region the solution is deployed in. The name of the log group is `/aws/lambda/${AWS::StackName}_awstransfer_idp`
