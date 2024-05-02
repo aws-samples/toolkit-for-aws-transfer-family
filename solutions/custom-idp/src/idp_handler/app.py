@@ -1,13 +1,11 @@
 # This file is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
 # CONDITIONS OF ANY KIND, either express or implied.
 
-import datetime
 import importlib
 import ipaddress
 import json
 import logging
 import os
-import random
 
 import boto3
 from aws_xray_sdk.core import patch_all, xray_recorder
@@ -28,11 +26,8 @@ IDENTITY_PROVIDERS_TABLE = boto3.resource("dynamodb").Table(IDENTITY_PROVIDERS_T
 
 
 class IdpHandlerException(Exception):
-    "Used to raise handler exceptions"
+    """Used to raise handler exceptions"""
     pass
-
-
-transfer_server_details = {}
 
 
 @xray_recorder.capture()
@@ -51,26 +46,6 @@ def ip_in_cidr_list(ip_address, cidr_list):
     return False
 
 @xray_recorder.capture()
-def fetch_transfer_server_details(server_id):
-    if transfer_server_details.get(server_id, None) is None or (
-        datetime.datetime.now()
-        - transfer_server_details.get(server_id, {}).get(
-            "timestamp", datetime.datetime.fromtimestamp(0)
-        )
-    ).seconds > 300 + random.randint(0, 120):
-        logger.info(f"Fetching server details for {server_id}")
-        transfer_server_details[server_id] = {
-            "details": util.get_transfer_server_details(server_id),
-            "timestamp": datetime.datetime.now(),
-        }
-    else:
-        logger.info(f"Using cached details for {server_id}")
-
-    logger.debug(f"Transfer server details: {transfer_server_details[server_id]}")
-    return transfer_server_details[server_id]["details"]
-
-
-@xray_recorder.capture()
 def lambda_handler(event, context):
     response_data = {}
 
@@ -78,11 +53,6 @@ def lambda_handler(event, context):
 
     if "username" not in event or "serverId" not in event:
         raise IdpHandlerException("Incoming username or serverId missing  - Unexpected")
-
-    server_details = fetch_transfer_server_details(event["serverId"])
-    server_auth_method = server_details["Server"]["IdentityProviderDetails"][
-        "SftpAuthenticationMethods"
-    ]
 
     input_username = event["username"].lower()
     logger.info(f"Username: {input_username}, ServerId: {event['serverId']}")
@@ -194,7 +164,7 @@ def lambda_handler(event, context):
         )
         response_data["Role"] = identity_provider_record["config"]["Role"]
     else:
-        logger.warn(
+        logger.warning(
             f"Role arn not found in user record for {input_username} or identity provider record {identity_provider}. It may still be provided by identity provider response."
         )
 
@@ -241,7 +211,7 @@ def lambda_handler(event, context):
         ]
         response_data["HomeDirectoryType"] = "PATH"
     else:
-        logger.warn(
+        logger.warning(
             f"HomeDirectory and HomeDirectoryDetails in user record for {input_username} or identity provider record {identity_provider}"
         )
 
@@ -268,19 +238,29 @@ def lambda_handler(event, context):
         "Response Data before processing with IdP module: " + json.dumps(response_data)
     )
 
-    if server_auth_method == "PUBLIC_KEY_AND_PASSWORD" and not "password" in event:
+    if event.get("password", "").strip() == "":
         logger.info(
-            f"Server {event['serverId']} set to PUBLIC_KEY_AND_PASSWORD and no password provided, performing public key auth."
+            f"No password provided, performing public key auth."
         )
-        from idp_modules import public_key
+        authn_method = util.AuthenticationMethod.PUBLIC_KEY
+    else:
+        logger.info(
+            f"Password provided, performing password auth."
+        )
+        authn_method = util.AuthenticationMethod.PASSWORD
 
-        public_key.handle_auth(
+    # Some identity providers have built-in public key support, as specified in their config. If they don't, fall back to the public_key module.
+    if authn_method == util.AuthenticationMethod.PUBLIC_KEY and not identity_provider_record.get('public_key_support', False):
+        from idp_modules import public_key 
+
+        response_data = public_key.handle_auth(
             event=event,
             parsed_username=parsed_username,
             user_record=user_record,
             identity_provider_record=identity_provider_record,
             response_data=response_data,
-        )
+            authn_method=authn_method
+    )
     else:
         # Load the identity provider module and perform authentication with the provider
         identity_provider_module = importlib.import_module(
@@ -292,6 +272,7 @@ def lambda_handler(event, context):
             user_record=user_record,
             identity_provider_record=identity_provider_record,
             response_data=response_data,
+            authn_method=authn_method
         )
 
     # HomeDirectoryDetails must be a stringified list

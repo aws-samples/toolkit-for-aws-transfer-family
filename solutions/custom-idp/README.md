@@ -14,6 +14,7 @@ Content
 - [Setup Instructions](#setup-instructions)
   - [Prerequisites](#prerequisites)
   - [Deploy the solution](#deploy-the-solution)
+  - [Alternative: Automated deployment pipeline](#alternative-automated-deployment-pipeline)
   - [Deploy an AWS Transfer server](#deploy-an-aws-transfer-server)
   - [Define identity providers](#define-identity-providers)
   - [Define Users](#define-users)
@@ -24,18 +25,22 @@ Content
 - [Identity provider modules](#identity-provider-modules)
   - [How the identity provider modules work](#how-the-identity-provider-modules-work)
   - [Identity provider module reference](#identity-provider-module-reference)
-    - [LDAP and Active Directory](#ldap-and-active-directory)
+    - [Argon2](#argon2)
       - [DynamoDB Record Schema](#dynamodb-record-schema)
       - [Parameters](#parameters)
       - [Example](#example)
-    - [Okta](#okta)
+    - [LDAP and Active Directory](#ldap-and-active-directory)
       - [DynamoDB Record Schema](#dynamodb-record-schema-1)
       - [Parameters](#parameters-1)
       - [Example](#example-1)
-    - [Public Key](#public-key)
+    - [Okta](#okta)
       - [DynamoDB Record Schema](#dynamodb-record-schema-2)
       - [Parameters](#parameters-2)
       - [Example](#example-2)
+    - [Public Key](#public-key)
+      - [DynamoDB Record Schema](#dynamodb-record-schema-3)
+      - [Parameters](#parameters-3)
+      - [Example](#example-3)
     - [Secrets Manager](#secrets-manager)
 - [AWS Transfer session settings inheritance](#aws-transfer-session-settings-inheritance)
   - [user record](#user-record)
@@ -43,14 +48,15 @@ Content
 - [Uninstall the solution](#uninstall-the-solution)
   - [Cleanup remaining artifacts](#cleanup-remaining-artifacts)
 - [Logging and troubleshooting](#logging-and-troubleshooting)
+  - [Testing custom identity providers](#testing-custom-identity-providers)
   - [Accessing logs](#accessing-logs)
   - [Setting the log level](#setting-the-log-level)
 - [FAQ](#faq)
 - [Common issues](#common-issues)
 - [Tutorials](#tutorials)
   - [Setting up Okta](#setting-up-okta)
-  - [Configuring Okta to retrieve session settings from user profile attributes](#configuring-okta-to-retrieve-session-settings-from-user-profile-attributes)
   - [Configuring Okta MFA](#configuring-okta-mfa)
+  - [Configuring Okta to retrieve session settings from user profile attributes](#configuring-okta-to-retrieve-session-settings-from-user-profile-attributes)
 - [Contributing a Module](#contributing-a-module)
 - [Security](#security)
 - [License](#license)
@@ -115,18 +121,71 @@ The solution contains two DynamoDB tables:
 
 ## Setup Instructions
 The custom IDP solution can be deployed with one of two methods:
-1. (Recommended) Automatically, using the `install.yml` CloudFormation template to provision a deployment pipeline linked to this repo or a fork of it. The instructions below walk through this deployment method.
 
-2. Manually, using the `custom-idp.yaml` Serverless Application Model (SAM) template. If you would like to deploy the solution manually, it is recommended you use the [buildspec_build_deploy.yml](pipeline/buildspec_build_deploy.yml) as a reference for the commands used to build and deploy the solution.
+Manually, using the `custom-idp.yaml` Serverless Application Model (SAM) template. If you would like to deploy the solution manually, it is recommended you use the [buildspec_build_deploy.yml](pipeline/buildspec_build_deploy.yml) as a reference for the commands used to build and deploy the solution.
 
 ### Prerequisites
-* A Virtual Private Cloud (VPC) with private subnets with either internet connectivity via NAT Gateway, or a DynamoDB Gateway Endpoint.
-* Appropriate IAM permissions to deploy the `install.yml` CloudFormation template, including but not limited to creating CodePipeline and CodeBuild projects, IAM roles, and IAM policies.
+* A Virtual Private Cloud (VPC) with private subnets with either internet connectivity via NAT Gateway, or a DynamoDB Gateway Endpoint. 
+* Appropriate IAM permissions to deploy the `custom-idp.yaml` CloudFormation template, including but not limited to creating CodePipeline and CodeBuild projects, IAM roles, and IAM policies.
 
 > [!IMPORTANT]  
 > The solution must be deployed in the same AWS account and region as the target AWS Transfer servers. 
 
 ### Deploy the solution
+1. Log into the AWS account you wish to deploy the solution in, switch to the region you will run AWS Transfer in, and start a CloudShell session.
+
+    ![CloudShell session running](screenshots/ss-deploy-01-cloudshell.png)
+
+2. Install the Python 3.11 into your environment.
+
+    ```
+    sudo yum install python3.11 python3.11-pip -y
+    ```
+
+3. Clone the solution into your environment:
+    ```
+    cd ~
+    git clone https://github.com/aws-samples/toolkit-for-aws-transfer-family.git
+    ```
+    
+4. Run the following command to run the build script, which downloads all package dependencies and generates archives for the Lambda layer and function used in the solution.
+    ```
+    cd ~/toolkit-for-aws-transfer-family/solutions/custom-idp
+    ./build.sh
+    ```
+    Monitor the execution and verify the script completes successfully.
+
+5. Begin the SAM deployment by using the following command
+
+    ```
+    sam deploy --guided --capabilities "CAPABILITY_NAMED_IAM"
+
+    ```
+    At the prompts, provide the following information:
+    | Parameter | Description | Value |
+    | --- | --- | --- |
+    | **Stack name** | **REQUIRED**. The name of the CloudFormation stack that will be created. The stack name is also prefixed to several resources that are created to allow the solution to be deployed multiple times in the same AWS account and region. | *your stack name, i.e. transferidp* |
+    | **CreateVPC** | **REQUIRED**. Set to *`true`* if you you would like the solution to create a VPC for you, otherwise *`false`* | `true` or `false`|
+    | **VPCCIDR** | **CONDITIONALLY REQUIRED**. Must be set if `CreateVPC` is `true`. The CIDR to use for when creating a new VPC. The CIDR should be at least a /24 and will be divided evenly across 4 subnets. Required if CreateVPC is set.  | `true` or `false`|   
+    | **VPCId** | **CONDITIONALLY REQUIRED**. Must be set if `CreateVPC` is `false`. The ID of the VPC to deploy the custom IDP solution into. The VPC specified should have network connectivity to any IdPs that will used for authentication.  | *A VPC ID, i.e. `vpc-abc123def456`* |    
+    | **Subnets** | **CONDITIONALLY REQUIRED**. Must be set if `CreateVPC` is `false`. A list of subnet IDs to attach the Lambda function to. The Lambda is attached to subnets in order to allow private communication to IdPs such as LDAP servers or Active Directory domain controllers. At least one subnet must be specified, and all subnets must be in the same VPC specified above. **IMPORTANT**: The subnets must be able to reach DynamoDB service endpoints. If using public IdP such as Okta, the subnet must also have a route to a NAT Gateway that can forward requests to the internet. *Using a public subnet will not work because Lambda network interfaces are not assigned public IP addresses*.  | *comma-separated list of subnet IDs, i.e. `subnet-123abc,subnet-456def`* |
+    | **SecurityGroups** | **CONDITIONALLY REQUIRED**. Must be set if `CreateVPC` is false. A list of security group IDs to assign to the Lambda function. This is used to control inbound and outbound access to/from the ENI the Lambda function uses for network connectivity. At least one security group must be specified and the security group must belong to the VPC specified above. | *comma-separated list of Security Group IDs, i.e. `sg-abc123`* |
+    | **UserNameDelimiter**  | The delimiter to use when specifying both the username and IdP name during login. Supported delimiter formats: <ul><li>[username]**&#64;**[IdP-name]</li><li>[username]**$**[IdP-name]</li><li>[IdP-name]**/**[username]</li><li>[IdP-name]**&#92;&#92;**[username]</li></ul> | One of the following values: <ul><li>**&#64;**</li><li>**$**</li><li>**/**</li><li>**&#92;&#92;**</li></ul> |    
+    | **SecretsManagerPermissions** | Set to *`true`* if you will use the Secrets Manager authentication module, otherwise *`false`* | `true` or `false`|
+    | **ProvisionApi** | When set to *`true`* an API Gateway REST API will be provisioned and integrated with the custom IdP Lambda. Provisioning and using an API Gateway REST API with AWS Transfer is useful if you intend to [use AWS Web Application Firewall (WAF) WebACLs to restrict requests to authenticate to specific IP addresses](https://aws.amazon.com/blogs/storage/securing-aws-transfer-family-with-aws-web-application-firewall-and-amazon-api-gateway/) or apply rate limiting. | `true` or `false` |    
+    | **LogLevel** | Sets the verbosity of logging for the Lambda IdP function. This should be set to `INFO` by default and `DEBUG` when troubleshooting. <br /><br />**IMPORTANT** When set to `DEBUG`, sensitive information may be included in log entries. | `INFO` or `DEBUG` <br /> <br /> *`INFO` recommended as default* |
+    | **EnableTracing** | Set to *`true`* if you would like to enable AWS X-Ray tracing on the solution. <br /><br /> Note: X-Ray has additional costs. | `true` or `false` |
+    | **UsersTableName** | *Optional*. The name of an *existing* DynamoDB table that contains the details of each AWS Transfer user (i.e. IdP to use, IAM role, logic directory list) are stored. Useful if you have already created a DynamoDB table and records for users **Leave this value empty if you want a table to be created for you**. | *blank* if a new table should be created, otherwise the name of an existing *users* table in DynamoDB |
+    | **IdentityProvidersTableName** | *Optional*. The name of an *existing* DynamoDB table that contains the details of each AWS Transfer custom IdPs (i.e. IdP name, server URL, parameters) are stored. Useful if you have already created a DynamoDB table and records for IdPs **Leave this value empty if you want a table to be created for you**. | *blank* if a new table should be created, otherwise the name of an existing *IdPs* table in DynamoDB |  
+    | **Confirm changes before deploy** | Prompt to confirm changes after a change set is created. | `y` (default) | 
+    | **Allow SAM CLI IAM role creation** | Allow SAM to create a CLI IAM role used for deployments | `y` (default) |
+    | **Disable rollback** | Disable rollback if stack creation and resource provisioning fails (can be useful for troubleshooting) | `n` (default) |
+    | **Save arguments to configuration file** | Save the parameters specified above to a configuration file for reuse. | `y` (default) | 
+    | **SAM configuration file** | The name of the file to save arguments to | `samconfig.toml` (default) |
+    | **SAM configuration environment** | The name of the configuration environment to use | `default` (default) |    
+
+### Alternative: Automated deployment pipeline 
+An alternate method to deploying the solution is through the `install.yml` CloudFormation template. This template provisions a CodePipeline deployment pipeline linked to this repository. You can also fork this repository to private repo and use that instead. The instructions below walk through this deployment method. 
 
 1. Open and save the [`install.yaml`](install.yaml) template.
 
@@ -139,9 +198,9 @@ The custom IDP solution can be deployed with one of two methods:
     | Parameter | Description | Value |
     | --- | --- | --- |
     | **Stack name** | **REQUIRED**. The name of the CloudFormation stack that will be created. The stack name is also prefixed to several resources that are created to allow the solution to be deployed multiple times in the same AWS account and region. | *your stack name, i.e. transferidp* |
-    | **VPCId** | **REQUIRED**. The ID of the VPC to deploy the custom IDP solution into. The VPC specified should have network connectivity to any IdPs that will used for authentication.  | *A VPC ID, i.e. `vpc-abc123def456`* |    
-    | **Subnets** | **REQUIRED**. A list of subnet IDs to attach the Lambda function to. The Lambda is attached to subnets in order to allow private communication to IdPs such as LDAP servers or Active Directory domain controllers. At least one subnet must be specified, and all subnets must be in the same VPC specified above. **IMPORTANT**: The subnets must be able to reach DynamoDB service endpoints. If using public IdP such as Okta, the subnet must also have a route to a NAT Gateway that can forward requests to the internet. *Using a public subnet will not work because Lambda network interfaces are not assigned public IP addresses*.  | *comma-separated list of subnet IDs, i.e. `subnet-123abc,subnet-456def`* |
-    | **SecurityGroups** | **REQUIRED**. A list of security group IDs to assign to the Lambda function. This is used to control inbound and outbound access to/from the ENI the Lambda function uses for network connectivity. At least one security group must be specified and the security group must belong to the VPC specified above. | *comma-separated list of Security Group IDs, i.e. `sg-abc123`* |
+    | **VPCId** | **CONDITIONALLY REQUIRED**. Must be set if `CreateVPC` is false. The ID of the VPC to deploy the custom IDP solution into. The VPC specified should have network connectivity to any IdPs that will used for authentication.  | *A VPC ID, i.e. `vpc-abc123def456`* |    
+    | **Subnets** | **CONDITIONALLY REQUIRED**. A list of subnet IDs to attach the Lambda function to. The Lambda is attached to subnets in order to allow private communication to IdPs such as LDAP servers or Active Directory domain controllers. At least one subnet must be specified, and all subnets must be in the same VPC specified above. **IMPORTANT**: The subnets must be able to reach DynamoDB service endpoints. If using public IdP such as Okta, the subnet must also have a route to a NAT Gateway that can forward requests to the internet. *Using a public subnet will not work because Lambda network interfaces are not assigned public IP addresses*.  | *comma-separated list of subnet IDs, i.e. `subnet-123abc,subnet-456def`* |
+    | **SecurityGroups** | **CONDITIONALLY REQUIRED**. Must be set if `CreateVPC` is false. A list of security group IDs to assign to the Lambda function. This is used to control inbound and outbound access to/from the ENI the Lambda function uses for network connectivity. At least one security group must be specified and the security group must belong to the VPC specified above. | *comma-separated list of Security Group IDs, i.e. `sg-abc123`* |
     | **UserNameDelimiter**  | The delimiter to use when specifying both the username and IdP name during login. Supported delimiter formats: <ul><li>[username]**&#64;**[IdP-name]</li><li>[username]**$**[IdP-name]</li><li>[IdP-name]**/**[username]</li><li>[IdP-name]**&#92;&#92;**[username]</li></ul> | One of the following values: <ul><li>**&#64;**</li><li>**$**</li><li>**/**</li><li>**&#92;&#92;**</li></ul> |    
     | **SecretsManagerPermissions** | Set to *`true`* if you will use the Secrets Manager authentication module, otherwise *`false`* | `true` or `false`|
     | **ProvisionApi** | When set to *`true`* an API Gateway REST API will be provisioned and integrated with the custom IdP Lambda. Provisioning and using an API Gateway REST API with AWS Transfer is useful if you intend to [use AWS Web Application Firewall (WAF) WebACLs to restrict requests to authenticate to specific IP addresses](https://aws.amazon.com/blogs/storage/securing-aws-transfer-family-with-aws-web-application-firewall-and-amazon-api-gateway/) or apply rate limiting. | `true` or `false` |    
@@ -153,12 +212,6 @@ The custom IDP solution can be deployed with one of two methods:
     | **RepoOwner** | *Optional*. The owner of the repository where the custom IdP solution code is retrieved from during deployment. Default is `aws-samples` on Github. **Only change this if you have forked the repo for customization** | `aws-samples` if using the public aws-samples repo, otherwise the name of your repo. |  
     | **CodeStarConnectionArn** | *Optional*. The ARN of the [CodeStar/Developer Tools Connection](https://docs.aws.amazon.com/dtconsole/latest/userguide/connections.html) that will be used to access the repo. Default is blank, because a connection is not needed to access a public repo on Github. **Only change this if you have forked the repo for customization and are using a private repo.** | *blank* if using the public aws-samples repo, otherwise the ARN of the Connection, i.e. `arn:aws:codestar-connections:[REGION]:[ACCOUNTID]:connection/8d27eabf-90c9-4d52-b211-e504427e101b`. | 
     | **ProjectSubfolder** | *Optional*. The path to the custom IdP solution source code within the repo. In the *toolkit-for-aws-transfer-family* repo, this should always be `solutions/custom-idp`. **Only change this if you have forked the repo and moved the source code.** | `solutions/custom-idp` if using the public aws-samples repo. |     
-    | **Confirm changes before deploy** | Prompt to confirm changes after a change set is created. | `y` (default) | 
-    | **Allow SAM CLI IAM role creation** | Allow SAM to create a CLI IAM role used for deployments | `y` (default) |
-    | **Disable rollback** | Disable rollback if stack creation and resource provisioning fails (can be useful for troubleshooting) | `n` (default) |
-    | **Save arguments to configuration file** | Save the parameters specified above to a configuration file for reuse. | `y` (default) | 
-    | **SAM configuration file** | The name of the file to save arguments to | `samconfig.toml` (default) |
-    | **SAM configuration environment** | The name of the configuration environment to use | `default` (default) |
     
     Once the parameters are set appropriately, click the **Next** button.
 
@@ -189,9 +242,9 @@ The custom IDP solution can be deployed with one of two methods:
    
   ![AWS Transfer console](screenshots/ss-transfer-01-create-server.png)
 
-1. At the **Choose protocols** screen, select the protocols to enable and click **Next**
+2. At the **Choose protocols** screen, select the protocols to enable and click **Next**
 
-2. At the **Choose an identity provider** screen, select **Custom Identity Provider**, then select one of the identity provider options below.
+3. At the **Choose an identity provider** screen, select **Custom Identity Provider**, then select one of the identity provider options below.
 
     **Option 1: Use AWS Lambda to connect your identity provider**
     
@@ -234,6 +287,9 @@ To get started, you must define one or more identity providers in the DynamoDB t
     "provider": {
       "S": "publickeys"
     },
+    "public_key_support": {
+      "BOOL": true
+    },        
     "config": {
       "M": {
       }
@@ -276,7 +332,7 @@ Once identity providers are defined, user records must be created. Each user rec
     },
     "identity_provider_key": {
       "S": "publickeys"
-    },
+    },  
     "config": {
       "M": {
         "HomeDirectoryDetails": {
@@ -416,7 +472,7 @@ Below is an example of a `$default$` user record, for mapped to an an Active Dir
 ```
 To further illustrate a scenario where `$default$` is used, suppose `PosixProfile` and a scoped `Policy` are retrieved from Active Directory or LDAP server. This is what the identity provider record might look like.
 
-```
+```json
 {
   "provider": {
     "S": "example.com"
@@ -501,6 +557,127 @@ Any module-specific settings are stored in the `config` value of the record with
 
 
 ### Identity provider module reference
+
+#### Argon2
+The Argon2 module allows you to generate and use [Argon2](https://en.wikipedia.org/wiki/Argon2) hashed passwords that are stored in the `user` record for authentication. 
+
+This module serves as a method to define "local" user credentials within the custom idp solution. It is not recommended that this method be used at any scale in a production environment since this solution does not contain self-service password management functionality for end users.
+
+> [!NOTE]  
+> To use this module, you must generate an argon2 hash and store it in an `argon2_hash` field of the `config` for each `user` record. See the **Examples** section below for more details.
+
+##### DynamoDB Record Schema
+```json
+{
+  "provider": {
+    "S": "[provider name]"
+  },
+  "config": {
+  },
+  "module": {
+    "S": "argon2"
+  }     
+}
+```
+##### Parameters
+
+**provider**
+
+A name used for referencing the provider in the `users` table. This value is also used when users specify an identity provider during authentication (e.g. `username@provider`).
+
+**Type:** String
+
+**Constraints:** None
+
+**Required:** Yes
+
+**module**
+
+The name of the module that will be loaded to perform authentication. **This should be set to `argon2`.**
+
+Type: String
+
+Constraints: None
+
+Required: Yes
+
+##### Example
+
+The following example configures the argon2 provider with a provider name `local_password`. 
+
+```json
+{
+  "provider": {
+    "S": "local_password"
+  },
+  "config": {
+    "M": {
+    }
+  },
+  "module": {
+    "S": "argon2"
+  }
+}
+```
+
+The following is an example of a `user` record that uses the `argon2` identity provider defined above. This shows the `argon2_hash` field that stores the password hash.
+
+```json
+{
+    "user": {
+        "S": "johnsmith"
+    },
+    "identity_provider_key": {
+        "S": "local_password"
+    },
+    "config": {
+      "argon2_hash": {
+        "S": "$argon2i$v=19$m=4096,t=3,p=$argon2i$v=19$m=4096,t=3,p=1$Q1JYWUZvSExndGwxVFBKVDdnUUlUMXpCVlpjTUJibbbbbbbb+2/GwZZmGUN3UiclEIXWX3bbbbbbbbb"
+      },
+        "M": {
+            "HomeDirectoryDetails": {
+                "L": [{
+                        "M": {
+                            "Entry": {
+                                "S": "/home"
+                            },
+                            "Target": {
+                                "S": "organization-bucket/users/johnsmith"
+                            }
+                        }
+                    },
+                    {
+                        "M": {
+                            "Entry": {
+                                "S": "/finance"
+                            },
+                            "Target": {
+                                "S": "organization-bucket/departments/finance"
+                            }
+                        }
+                    }
+                ]
+            },
+            "HomeDirectoryType": {
+                "S": "LOGICAL"
+            }
+        }
+    },
+    "ipv4_allow_list": {
+        "SS": [
+            "172.31.0.0/16",
+            "192.168.10.0/24"
+        ]
+    }
+}
+```
+tr -dc 'A-Za-z0-9!"#$%&'\''()*+,-./:;<=>?@[\]^_`{|}~' </dev/urandom | head -c 32; echo
+On system with the `argon2` package/binaries installed, a hash can be generated for testing using this command: 
+```bash
+unset -v password; set +o allexport; echo "Enter password"; IFS= read -rs password < /dev/tty; printf '%s' "$password" | argon2 $(head /dev/urandom | LC_ALL=C tr -dc A-Za-z0-9 | head -c 32; echo) -e; unset -v password;
+```
+Copy the hash and paste it into the `argon_hash` field in the `user` record above. 
+
 #### LDAP and Active Directory
 The `ldap` module supports authentication with Active Directory and LDAP servers. Both LDAP and LDAPS are supported. User attributes can be retrieved and mapped to the server response, such as `Uid` and `Gid`. 
 
@@ -715,11 +892,7 @@ Default: `false`
       "ssl_verify": {
         "BOOL": true
       }
-     },
-     "Role": {
-        "S": "arn:aws:iam::123456789012:role/examplecom-AWSTransferRole"
-    }
-  }
+     }
   },
   "module": {
     "S": "ldap"
@@ -767,7 +940,7 @@ The `okta` module supports authentication with an Okta instance. It supports TOT
         "S": "[app client id]"
       },
       "okta_redirect_uri": {
-        "S": "[app client id]"
+        "S": "[okta redirect uri]"
       },      
       "mfa": {
         "BOOL": [true or false]
@@ -974,7 +1147,10 @@ The Public Key module is is used to perform authentication with public/private k
   },
   "module": {
     "S": "public_key"
-  }
+  },
+  "public_key_support": {
+    "BOOL": true
+  }     
 }
 ```
 ##### Parameters
@@ -998,6 +1174,26 @@ Type: String
 Constraints: None
 
 Required: Yes
+
+**module**
+
+The name of the public key module that will be loaded to perform authentication. **This should be set to `public_key`.**
+
+Type: String
+
+Constraints: None
+
+Required: Yes
+
+**public_key_support**
+
+Indicates that the identity provider supports handling public key authentication. **This should always be set to `true` for this module.**
+
+**Type:** Boolean
+
+**Constraints:** None
+
+**Required:** Yes
 
 ##### Example
 
@@ -1075,7 +1271,7 @@ When an AWS Transfer Family custom identity provider authenticates a user, it re
                 "S": "arn:aws:iam::123456789012:role/examplecom-AWSTransferRole"
             }
         }
-    },
+      },
     "module": {
         "S": "ldap"
     }
@@ -1133,7 +1329,7 @@ When an AWS Transfer Family custom identity provider authenticates a user, it re
 ## Modifying/updating solution parameters
 If you need to change the parameters that were used to deploy the solution initially, in most cases you can use modify the installer stack and re-run the deployment pipeline.
 
-1. Go to [*Stacks*](https://console.aws.amazon.com/cloudformation/home#/stacks) in the CloudFormation console and select the solution installer stack. Click the **Update** button.
+1. Go to [*Stacks*](https://console.aws.amazon.com/cloudformation/home#/stacks) in the CloudFormation console and select the solution stack. Click the **Update** button.
 2. On the **Update stack** screen, select **Use current template**, then click **Next**. On the **Specify stack details** page, change any parameters needed, then click the **Next** button.
 3. On the **Configure stack options** page, click **Next**.
 4. At the **Review stack** page, review all parameters and settings, click the checkbox next to *I acknowledge that AWS CloudFormation might create IAM resources with custom names*, then click **Submit**. 
@@ -1146,13 +1342,30 @@ If you need to uninstall the solution for any reason, you can do so by deleting 
 2. From the [*Stacks*](https://console.aws.amazon.com/cloudformation/home#/stacks) page in the CloudFormation console, select the solution installer stack. Click **Delete**, then click **Delete** again in the dialog that appears. Wait for the deletion to complete.
 ### Cleanup remaining artifacts
 The following resources are not removed during stack deletion and should be manually removed if no longer required.
-* The DynamoDB tables used for users and identity providers
-* The S3 bucket used for CodePipeline, CodeBuild, and SAM artifacts
-* Cloudwatch Log groups for CodeBuild and Lambda
+* The DynamoDB tables used for users and identity providers (`${AWS::StackName}_users` and `${AWS::StackName_identity_providers}`
+* The S3 bucket used for SAM artifacts (`aws-sam-cli-managed-default-samclisourcebucket-[hash]`)
+* Cloudwatch Log groups for Lambda
 * Lambda layer versions used by the custom IdP Lambda
+
+If you deployed the solution with the pipeline installe (`install.yaml`), these items also need to be cleaned up:
+* The CodeBuild and CodePipeline artifacts bucket (`${AWS::StackName}-${AWS::AccountId}-${AWS::Region}-artifacts`)
+* Cloudwatch Log groups for CodeBuild
 
 ## Logging and troubleshooting
 The solution includes detailed logging to help with troubleshooting. Below are details on how to configure log levels and use logs for troubleshooting.
+
+### Testing custom identity providers
+The AWS Transfer console has a built-in utility to test custom identity providers that use the password authentication method. You can use this to see the output returned when authentication request is made to the custom identity provider, from the viewpoint of the AWS Transfer service. To use the utility, navigate to your [**AWS Transfer Family Servers**](https://console.aws.amazon.com/transfer/servers) in the console, open the details of of the server, and select **Actions > Test** from the upper right corner. 
+
+> [!NOTE]  
+> The identity provider tester works with password authentication only. Public key authentication is not supported. We recommend using the identity provier logs, as described below, for further troubleshooting.
+>
+
+A successful response will include the session setup details, such as `HomeDirectoryDetails`. Authentication failures or other errors should result in an exception in most cases. An empty response would also indicate an authentication failure. 
+
+The example below shows an authentication failure because of an incorrect password when using the `argon2` module. 
+
+![A screenshot of the identity provider testing console showing a test result](screenshots/ss-troubleshooting-idptest.png)
 
 ### Accessing logs
 The Lambda function writes all Logs to Cloudwatch Logs, which can be accessed from the [Cloudwatch console](https://console.aws.amazon.com/cloudwatch/home) in the region the solution is deployed in. The name of the log group is `/aws/lambda/${AWS::StackName}_awstransfer_idp`
@@ -1205,8 +1418,8 @@ Follow these same steps to return the **LogLevel** setting to `INFO` after finis
   The identity provider and user tables in DynamoDB are retained when the stack is deleted. When re-deploying the solution, reference the table names when creating the stack, and the solution will use the existing tables instead of creating new ones. 
 
 * **Does the AWS Transfer server need to be deployed in the same VPC as the Custom IdP solution?**
+  No, it can be deployed independently of the VPC the Custom IdP solution uses. 
 
-  No, it can be deploy independently of the VPC the Custom IdP solution uses.
 
 ## Common issues
 * **After deploying the solution, the pipeline fails on the "TestVPCConnectivity" stage.**
@@ -1264,10 +1477,74 @@ Follow these same steps to return the **LogLevel** setting to `INFO` after finis
 ## Tutorials
 
 ### Setting up Okta
+Authenticating users with Okta can be as simple as defining an identity provider with the `okta` module and including the `okta_domain` setting. The basic steps for this are as follows:
+
+1. Determine your Okta domain. This should be in the format of `{domain}.okta.com`
+2. In the `identity_providers` DynamoDB table, create a new record, replacing `{provider}` with your desired provider name and `{okta_domain}` with your own Okta domain.
+
+  ```json
+    {
+      "provider": {
+        "S": "{provider}"
+      },
+      "config": {
+        "M": {
+          "okta_domain": {
+            "S": "{okta_domain}"
+          }
+        }
+      },
+      "module": {
+        "S": "okta"
+      }
+    }
+  ```
+
+3. In the `users` DynamoDB table, create a new record similar to the one below, replacing any placeholders `{}` with real values. Ensure `{username}` matches a valid username in Okta, and `{provider}` is the name of the provider from the previous step.
+
+   ```json
+    {
+      "user": {
+        "S": "{username}"
+      },
+      "identity_provider_key": {
+        "S": "{provider}"
+      },
+      "config": {
+        "M": {
+          "HomeDirectoryDetails": {
+            "L": [
+              {
+                "M": {
+                  "Entry": {
+                    "S": "{virtual path}"
+                  },
+                  "Target": {
+                    "S": "{[bucketname/prefix/to/files}"
+                  }
+                }
+              }
+            ]
+          },
+          "HomeDirectoryType": {
+            "S": "LOGICAL"
+          },
+          "Role": {
+            "S": "{arn:aws:iam::[AWS Account Id]:role/[Role Name]}"
+          }
+        }
+      }
+    }
+  ```
+
+4. Test the identity provider, either by attempting to connect with an SFTP client, or by going to your AWS Transfer Server in the AWS Console and selecting **Actions > Test** in the upper right corner. If you encounter any failures, see the [Troubleshooting section](#logging-and-troubleshooting) for guidance on how to use logs for identifying the issue.
+
+
+### Configuring Okta MFA
+
 
 ### Configuring Okta to retrieve session settings from user profile attributes
 
-### Configuring Okta MFA
 
 ## Contributing a Module
 Want to contribute a module? Please see the [CONTRIBUTING] document for more guidance and standards for building a module and contributing it to this solution. [TODO]

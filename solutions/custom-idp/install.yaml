@@ -11,6 +11,10 @@ Parameters:
     Description: The name of the repo owner. By default, this sources from aws-samples.
     Type: String
     Default: aws-samples
+  RepoBranch: 
+    Description: The branch to use for the repo. By default, this is main.
+    Type: String
+    Default: main
   CodeStarConnectionArn:
     Description: The ARN of the CodeStar connection to use for accessing the repository. If blank, the Github provider is used and the repo is assumed to be public. This setting is useful if the solution is forked to a private repository in GitHub for development or customization.
     Type: String
@@ -22,29 +26,34 @@ Parameters:
   CreateVPC:
     Description: 'When set, creates a pre-configured VPC for the custom IDP solution and uses it for the custom IdP Lambda function to simplify deployment. The VPC will contain public/private subnets for two AZs, two NAT Gateways, a Security Group, and a DynamoDB Gateway endpoint. If this is set to false, VPC, subnet, and security group information must be provided.'
     Type: String
-    AllowedValues: [true, false]
-    Default: false
+    AllowedValues: ['true', 'false']
+    Default: 'false'
   VPCCIDR:
     Description: 'The CIDR to use for when creating a new VPC. The CIDR should be at least a /24 and will be divided evenly across 4 subnets. Required if CreateVPC is set.'
     Type: String
     Default: 172.31.0.0/16
     AllowedPattern: ^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\/(1[6-9]|2[0-8]))$
   VpcId:
-    Type: AWS::EC2::VPC::Id
+    Type: String
     Description: An existing VPC to attach the Lambda function to. Must be set if CreateVPC is not set to true.
+    AllowedPattern: ^(vpc-[0-9a-z]+)$|^$
     Default: ''
   Subnets:
     Description: A list of VPC subnets to attach the custom IdP Lambda to. To allow the Lambda function to connect to public IdP endpoints such as Okta, ensure the subnets are configure to route internet traffic to a NAT gateway in a public subnet. If the Lambda function will reside in private subnet without internet access, ensure a DynamoDB Gateway Endpoint is configured in the VPC. Must be set if CreateVPC is not set to true.
-    Type: List<AWS::EC2::Subnet::Id>
+    Type: CommaDelimitedList
     ConstraintDescription: You must supply least one existing subnet. Subnets must reside in the same VPC.
+    AllowedPattern: ^(subnet-[0-9a-z]+)$|^$
+    Default: ''
   SecurityGroups:
     Description: Security Groups to attach to the Lambda. Must be set if CreateVPC is not set to true.
-    Type: List<AWS::EC2::SecurityGroup::Id>
+    Type: CommaDelimitedList
+    AllowedPattern: ^(sg-[0-9a-z]+)$|^$
+    Default: ''
   SecretsManagerPermissions:
     Description: 'When set, grants the custom IdP Lambda execution role permission to read Secrets Manager secrets. Note: this is required to use the secrets_manager module, or any other IdP module that depends on Secrets Manager in the future.'
     Type: String
-    AllowedValues: [true, false]
-    Default: false
+    AllowedValues: ['true', 'false']
+    Default: 'false'
   UserNameDelimiter:
     Description: Delimiter for user name
     Type: String
@@ -95,6 +104,7 @@ Metadata:
             default: Network Configuration
           Parameters:
             - CreateVPC
+            - VPCCIDR
             - VpcId
             - Subnets 
             - SecurityGroups 
@@ -116,33 +126,13 @@ Metadata:
           Parameters:
             - Repo
             - RepoOwner
+            - RepoBranch
             - CodeStarConnectionArn
             - ProjectSubfolder
 
-      
-Rules:
-  SubnetsInVPC:
-    RuleCondition: !Equals  [!Ref CreateVPC, 'false']
-    Assertions:
-      - Assert:
-          'Fn::EachMemberEquals':
-            - 'Fn::ValueOf':
-                - Subnets
-                - VpcId
-            - Ref: VpcId
-        AssertDescription: All subnets must in the VPC
-  CreateVPCSetCIDR:        
-    RuleCondition: !Equals  [!Ref CreateVPC, 'true']
-    Assertions:
-      - Assert:
-          'Fn::Not':
-            - 'Fn::Equals':
-                - Ref: VPCCIDR
-                - ""
-        AssertDescription: A VPC CIDR must be set when CreateVPC is enabled.       
-
 Conditions:
      UseConnection: !Not [!Equals [!Ref CodeStarConnectionArn, '']]
+     UseGithub: !Equals [!Ref CodeStarConnectionArn, '']
      CreateVPC: !Equals [!Ref CreateVPC, 'true']
 Resources:
 
@@ -161,14 +151,17 @@ Resources:
               Service:
                 - codepipeline.amazonaws.com
       Policies:
-        - PolicyName: CodeStar
-          PolicyDocument: 
-            Version: "2012-10-17"
-            Statement: 
-              - Effect: Allow
-                Action: 
-                  - codestar-connections:UseConnection
-                Resource: !Ref CodeStarConnectionArn
+        - !If 
+          - UseConnection
+          - PolicyName: CodeStar
+            PolicyDocument: 
+              Version: "2012-10-17"
+              Statement: 
+                - Effect: Allow
+                  Action: 
+                    - codestar-connections:UseConnection
+                  Resource: !Ref CodeStarConnectionArn
+          - !Ref AWS::NoValue
         - PolicyName: CodePipelineCodeAndS3Bucket
           PolicyDocument:
             Version: "2012-10-17"
@@ -186,10 +179,21 @@ Resources:
                   - s3:PutObject
                 Resource:
                   Fn::Sub: ${PipelineArtifactsBucket.Arn}/*
-        - PolicyName: CodePipelineCodeBuildAndCloudformationAccess
+        - PolicyName: CodeCommmitCodeBuildAndCloudformationAccess
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
+              - !If 
+                  - UseGithub
+                  - Effect: Allow
+                    Action:
+                      - codecommit:GetBranch
+                      - codecommit:GetCommit
+                      - codecommit:GetUploadArchiveStatus
+                      - codecommit:UploadArchive
+                      - codecommit:CancelUploadArchive
+                    Resource: !GetAtt CodePipelineSourceRepo.Arn   
+                  - !Ref AWS::NoValue         
               - Effect: Allow
                 Action:
                   - codebuild:StartBuild
@@ -211,6 +215,18 @@ Resources:
                   - cloudformation:ValidateTemplate
                 Resource:
                   - !Sub "arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${AWS::StackName}-*"
+
+  CodePipelineSourceRepo:
+    Condition: UseGithub
+    Type: AWS::CodeCommit::Repository
+    Properties:
+      RepositoryDescription: !Sub Empty repository for ${AWS::StackName}-AWSTransferCustomIdP, used as empty source for CodePipeline.
+      RepositoryName: !Sub ${AWS::StackName}-AWSTransferCustomIdP-Repo
+      Code:
+        BranchName: !Ref RepoBranch
+        S3:
+          Bucket: !Ref PipelineArtifactsBucket
+          Key: !Sub "${AWS::StackName}-repo/${Repo}-${RepoBranch}.zip"
 
 
   AWSTransferCustomIdPCodePipelineProject:
@@ -238,7 +254,7 @@ Resources:
                 Configuration:
                   ConnectionArn: !Ref CodeStarConnectionArn
                   FullRepositoryId: !Sub ${RepoOwner}/${Repo}
-                  BranchName: scaffolding
+                  BranchName: !Ref RepoBranch
                   OutputArtifactFormat: CODE_ZIP    
                   DetectChanges: false            
                 RunOrder: 1
@@ -246,15 +262,15 @@ Resources:
                 Name: SourceAction
                 ActionTypeId:
                   Category: Source
-                  Owner: ThirdParty
-                  Provider: GitHub
+                  Owner: AWS
+                  Provider: CodeCommit
                   Version: "1"
                 OutputArtifacts:
                   - Name: SourceCodeAsZip
                 Configuration:
-                  Owner: !Sub ${RepoOwner}
-                  Repo: !Sub ${Repo}
-                  Branch: scaffolding
+                  PollForSourceChanges: false
+                  RepositoryName: !GetAtt CodePipelineSourceRepo.Name
+                  BranchName: !Ref RepoBranch
                 RunOrder: 1
         - Name: TestVPCConnectivity
           Actions:
@@ -264,7 +280,7 @@ Resources:
                 Owner: AWS
                 Provider: CodeBuild
                 Version: "1"
-              RunOrder: 1
+              RunOrder: 1              
               Configuration:
                 ProjectName: !Ref CodeBuildProjectTestVPCConnectivity
               InputArtifacts:
@@ -361,7 +377,7 @@ Resources:
             - Effect: Allow
               Action:
                 - "iam:AttachRolePolicy"
-                - "iam:DeleteRolePolicy"
+                - "iam:DetachRolePolicy"
                 - "iam:CreateRole"
                 - "iam:DeleteRole"
                 - "iam:UpdateRole"
@@ -372,6 +388,7 @@ Resources:
                 - "iam:ListRolePolicies"
                 - "iam:PutRolePolicy" 
                 - "iam:TagRole"
+                - "iam:PassRole"
               Resource:
                 - !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${AWS::StackName}-*"
             - Effect: Allow
@@ -379,8 +396,20 @@ Resources:
                 - "ec2:DescribeSecurityGroups"
                 - "ec2:DescribeSubnets"
                 - "ec2:DescribeVpcs"
+                - "ec2:DescribeNetworkInterfaces"
+                - "ec2:DeleteNetworkInterface"
+                - "ec2:CreateNetworkInterface"       
+                - "ec2:DescribeDhcpOptions"           
                 - "resource-groups:CreateGroup"
               Resource: "*"
+            - Effect: Allow
+              Action:
+                - "ec2:CreateNetworkInterfacePermission"
+              Resource: !Sub arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:network-interface/* 
+              Condition:
+                StringEquals:
+                  ec2:AuthorizedService: "codebuild.amazonaws.com"
+                
             - Effect: Allow
               Action:  
                 - "lambda:CreateFunction"
@@ -388,15 +417,19 @@ Resources:
                 - "lambda:AddPermission"
                 - "lambda:CreateFunction"
                 - "lambda:UpdateFunction"
+                - "lambda:UpdateFunctionCode"
                 - "lambda:DeleteFunction"                
                 - "lambda:GetFunction"
                 - "lambda:GetFunctionCodeSigningConfig"
                 - "lambda:GetRuntimeManagementConfig"  
-                - "lambda:RemovePermission"              
+                - "lambda:RemovePermission"    
+                - "lambda:TagResource"  
+                - "lambda:ListTags"      
               Resource: !Sub 'arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${AWS::StackName}-*'
             - Effect: Allow
               Action: 
                 - "lambda:PublishLayerVersion"
+                - "lambda:GetLayerVersion"
               Resource: !Sub 'arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:layer:${AWS::StackName}-*'
             - Sid: APIGATEWAY
               Effect: Allow
@@ -408,10 +441,14 @@ Resources:
                 - 'apigateway:TagResource'
                 - 'apigateway:UntagResource'
               Resource:
-                - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/apis/*/integrations*'
-                - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/apis/*/stages*'
-                - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/apis/*/authorizers*'
-                - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/apis/*/routes*'
+                - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/account'
+                - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/restapis/*/deployments*'
+                - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/restapis/*/integrations*'
+                - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/restapis/*/stages*'
+                - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/restapis/*/authorizers*'
+                - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/restapis/*/routes*'
+                - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/restapis/*/models*'
+                - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/restapis/*/resources*'
                 - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/tags/arn%3Aaws%3Aapigateway%3A${AWS::Region}%3A%3A%2Fv2%2Fapis%2F*'
             - Sid: APIGATEWAYMANAGEAPI
               Effect: Allow
@@ -422,7 +459,7 @@ Resources:
                 - 'apigateway:POST'
                 - 'apigateway:GET'
               Resource:
-                - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/apis'
+                - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/restapis'
               Condition:
                 StringEquals:
                   'apigateway:Request/ApiName': 'Custom Identity Provider API for AWS Transfer'
@@ -435,7 +472,7 @@ Resources:
                 - 'apigateway:POST'
                 - 'apigateway:GET'
               Resource:
-                - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/apis/*'
+                - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/restapis/*'
               Condition:
                 StringEquals:
                   'apigateway:Resource/ApiName': 'Custom Identity Provider API for AWS Transfer'
@@ -444,12 +481,12 @@ Resources:
               Action:
                 - 'apigateway:GET'
               Resource:
-                - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/apis/*'
+                - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/restapis/*'
   CodeBuildProjectTestVPCConnectivity:
     Type: AWS::CodeBuild::Project
     Properties:
       Name: !Sub ${AWS::StackName}-test-vpc-connectivity
-      Description: Tests VPC connectivity before deploying. If this fails, it means the custom IdP Lambda function cannot reach dependencies such as DynamoDB. Verify the subnets and security groups allow Lambda to reach DynamoDB and other resources WITHOUT a public IP address.
+      Description: Tests VPC connectivity before deploying. If this fails verify the subnets and security groups allow Lambda to reach DynamoDB and other resources WITHOUT a public IP address.
       Artifacts:
         Type: CODEPIPELINE
       Environment:
@@ -458,8 +495,8 @@ Resources:
         Image: aws/codebuild/amazonlinux2-x86_64-standard:5.0
       ServiceRole: !GetAtt CodeBuildServiceRole.Arn
       VpcConfig:
-           SecurityGroupIds: !If [CreateVPC, !Sub "${SecurityGroup}",  !Ref SecurityGroups]
-           Subnets: !If [CreateVPC, [!Ref PrivateSubnet1, !Ref PrivateSubnet2], !Ref Subnets]
+           SecurityGroupIds: !If [CreateVPC, [!Ref SecurityGroup],  !Ref SecurityGroups]
+           Subnets: !If [CreateVPC,  [!Ref PrivateSubnet1, !Ref PrivateSubnet2], !Ref Subnets]
            VpcId: !If [CreateVPC, !Ref VPC, !Ref VpcId]
       Source:
         Type: CODEPIPELINE
@@ -483,6 +520,9 @@ Resources:
           - Name: StackName
             Type: PLAINTEXT
             Value: !Sub ${AWS::StackName}-awstransfer-custom-idp
+          - Name: VpcId
+            Type: PLAINTEXT
+            Value: !If [CreateVPC, !Ref VPC, !Ref VpcId]         
           - Name: Subnets
             Type: PLAINTEXT
             Value: !If [CreateVPC, !Sub "${PrivateSubnet1},${PrivateSubnet2}", !Join [',', !Ref Subnets]]
@@ -491,7 +531,7 @@ Resources:
             Value: !If [CreateVPC, !Sub "${SecurityGroup}", !Join [',', !Ref SecurityGroups]]
           - Name: SecretsManagerPermissions
             Type: PLAINTEXT
-            Value: !Ref SecretsManagerPermissions
+            Value: !Ref SecretsManagerPermissions 
           - Name: UserNameDelimiter
             Type: PLAINTEXT
             Value: !Ref UserNameDelimiter
@@ -517,7 +557,7 @@ Resources:
 
   PipelineArtifactsBucket:
       Type: AWS::S3::Bucket
-      DeletionPolicy: Retain
+      DeletionPolicy: RetainExceptOnCreate
       UpdateReplacePolicy: Retain
       Properties:
         BucketName: !Sub ${AWS::StackName}-${AWS::AccountId}-${AWS::Region}-artifacts
@@ -552,6 +592,165 @@ Resources:
               - !Sub arn:${AWS::Partition}:s3:::${PipelineArtifactsBucket}
               - !Sub arn:${AWS::Partition}:s3:::${PipelineArtifactsBucket}/*          
 
+  GithubDownloaderCustomResourceLambdaRole:
+    Condition: UseGithub
+    Type: AWS::IAM::Role
+    Properties:
+      Path: /
+      RoleName: !Sub ${AWS::StackName}-github-downloader-custom-resource-lambda-role
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action: sts:AssumeRole
+            Principal:
+              Service: lambda.amazonaws.com
+      Policies:
+        - PolicyName: EmptyArtifactBucket
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Sid: ManageBucketObjects
+                Effect: Allow
+                Action:
+                  - s3:DeleteObject
+                  - s3:DeleteObjectVersion
+                  - s3:GetObject
+                  - s3:GetObjectVersion
+                  - s3:PutObject
+                Resource: !Sub ${PipelineArtifactsBucket.Arn}/*              
+              - Sid: ListBucket
+                Effect: Allow
+                Action:
+                  - s3:GetBucketVersioning
+                  - s3:ListBucket
+                  - s3:ListBucketVersions
+                Resource: !GetAtt PipelineArtifactsBucket.Arn
+      ManagedPolicyArns:
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+
+  GithubSourcePackageLambdaFunction:
+    Condition: UseGithub
+    Type: AWS::Lambda::Function
+    Properties:
+      Description: upload the code the firs time to the bucket
+      Handler: index.lambda_handler
+      FunctionName: !Sub ${AWS::StackName}-github-downloader
+      Role: !GetAtt GithubDownloaderCustomResourceLambdaRole.Arn
+      Runtime: python3.11
+      MemorySize: 512
+      Timeout: 240
+      Environment:
+        Variables:
+          BUCKET: !Sub "${PipelineArtifactsBucket}"
+          BUCKET_ZIP_PATH: !Sub "${AWS::StackName}-repo/${Repo}-${RepoBranch}.zip"
+          REPO: !Sub ${Repo}
+          REPO_OWNER: !Sub ${RepoOwner}
+          REPO_BRANCH: !Sub ${RepoBranch}
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import os
+          import urllib3
+          import shutil
+          import logging
+
+          from botocore.client import ClientError
+
+
+          s3 = boto3.client('s3')
+          s3_resource = boto3.resource('s3')
+
+
+          logger = logging.getLogger(__name__)
+          logger.setLevel(logging.INFO)
+
+          logger.info(f"Loading function")
+
+          def lambda_handler(event, context):
+              print("Received event: " + json.dumps(event, indent=2))
+              # Get the object from the event and show its content type
+              bucket_name = os.environ["BUCKET"]
+              bucket_path = os.environ["BUCKET_ZIP_PATH"]
+              repo = os.environ["REPO"]
+              repo_owner = os.environ["REPO_OWNER"]
+              repo_branch = os.environ["REPO_BRANCH"]                            
+              src_url = f"https://github.com/{repo_owner}/{repo}/archive/refs/heads/{repo_branch}.zip"
+
+              local_zipfile = f"/tmp/{repo}-{repo_branch}.zip"
+
+              try:
+                  request_type = event.get("RequestType", "Create")
+                  if "RequestType" in event:
+                      request_type = event["RequestType"]
+                  http = urllib3.PoolManager()
+                  
+                  if request_type == "Create" or request_type == "Update":                              
+                      logger.info(f"downloading file from {src_url} to {local_zipfile}")
+                      with open(local_zipfile, 'wb') as out:
+                          r = http.request('GET', src_url, preload_content=False)
+                          if r.status != 200:
+                              raise Exception(f"Failed to download file from {src_url} to {local_zipfile}. HTTP Error code {r.status}")
+                          shutil.copyfileobj(r, out)            
+
+                      ## upload to dest s3
+                      logger.info(f"uploading file to s3://{bucket_name}/{bucket_path}")
+                      s3.upload_file(local_zipfile, bucket_name, bucket_path)
+                  else:
+                      if request_type == 'Delete':
+                          logger.info(f"deleting file to s3://{bucket_name}/{bucket_path}")
+                          s3.delete_object(bucket_name, bucket_path)
+
+                  send_response(event, context, "SUCCESS", "")
+
+                  return
+              except Exception as e:
+                  print(e)
+                  send_response(event, context, "FAILED", "")
+                  raise e
+          def send_response(event, context, response_status, response_data, physical_resource_id=None, no_echo=False):
+              http = urllib3.PoolManager()
+
+              if 'ResponseURL' not in event:
+                  return
+
+              response_url = event['ResponseURL']
+
+              if not response_url:
+                  return
+
+              response_body = {}
+              response_body['Status'] = response_status
+              response_body['Reason'] = 'See the details in CloudWatch Log Stream: ' + context.log_stream_name
+              response_body['PhysicalResourceId'] = physical_resource_id or context.log_stream_name
+              response_body['StackId'] = event['StackId']
+              response_body['RequestId'] = event['RequestId']
+              response_body['LogicalResourceId'] = event['LogicalResourceId']
+              response_body['NoEcho'] = no_echo
+              response_body['Data'] = {}
+
+              json_response_body = json.dumps(response_body)
+
+              headers = {
+                  'content-type' : '',
+                  'content-length' : str(len(json_response_body))
+              }
+
+              logger.info("Source Code Copier " + json.dumps(json_response_body))
+              try:
+                  response = http.request("PUT", response_url,
+                                          body=json_response_body,
+                                          headers=headers)
+                  logger.info(f"Source Code Copier handler status: {response.status}")
+              except Exception as e:
+                  logger.error("send_response(..) failed executing http.request(..): " + str(e))   
+  GithubDownloaderLambdaCustomResource:
+    Condition: UseGithub
+    Type: AWS::CloudFormation::CustomResource
+    Properties:
+      ServiceToken: !GetAtt GithubSourcePackageLambdaFunction.Arn
+
   VPC:
     Condition: CreateVPC
     Type: AWS::EC2::VPC
@@ -569,6 +768,12 @@ Resources:
       Tags:
         - Key: Name
           Value: !Sub "${AWS::StackName}-igw"      
+  InternetGatewayAttachment:
+    Condition:  CreateVPC
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
   PublicSubnet1:
     Condition: CreateVPC
     Type: AWS::EC2::Subnet
@@ -592,6 +797,7 @@ Resources:
           Value: !Sub "${AWS::StackName}-vpc-subnet-public-azb"      
   PublicSubnetRouteTable:
     Condition: CreateVPC
+    DependsOn: InternetGatewayAttachment
     Type: AWS::EC2::RouteTable
     Properties:
       VpcId: !Ref "VPC"
@@ -604,7 +810,7 @@ Resources:
     Properties:
       RouteTableId: !Ref "PublicSubnetRouteTable"
       DestinationCidrBlock: 0.0.0.0/0
-      GatewayId: !Ref "InternetGateway"
+      GatewayId: !Ref InternetGateway
  
   PublicSubnet1RouteTableAssociation:
     Condition: CreateVPC
@@ -618,10 +824,17 @@ Resources:
     Properties:
       SubnetId: !Ref "PublicSubnet2"
       RouteTableId: !Ref "PublicSubnetRouteTable"   
+  ElasticIP1:
+    Condition: CreateVPC
+    Type: "AWS::EC2::EIP"
+  ElasticIP2:
+    Condition: CreateVPC
+    Type: "AWS::EC2::EIP"   
   NATGateway1:
     Condition: CreateVPC
     Type: AWS::EC2::NatGateway
     Properties:
+      AllocationId: !GetAtt ElasticIP1.AllocationId
       SubnetId: !Ref 'PublicSubnet1'
       Tags:
         - Key: Name
@@ -630,6 +843,7 @@ Resources:
     Condition: CreateVPC
     Type: AWS::EC2::NatGateway
     Properties:
+      AllocationId: !GetAtt ElasticIP2.AllocationId
       SubnetId: !Ref 'PublicSubnet2'
       Tags:
         - Key: Name
@@ -649,7 +863,7 @@ Resources:
     Type: AWS::EC2::Subnet
     Properties:
       VpcId: !Ref "VPC"
-      CidrBlock: !Select [3, !Cidr [!Ref VPCCIDR, 6, 7]]
+      CidrBlock: !Select [3, !Cidr [!Ref VPCCIDR, 4, 8]]
       AvailabilityZone: !Select [1, Fn::GetAZs: !Ref "AWS::Region"]
       Tags:
         - Key: Name
@@ -718,8 +932,8 @@ Resources:
     Condition: CreateVPC
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupName: ${StackName}-security-group
-      GroupDescription: ${StackName}-security-group
+      GroupName: !Sub ${AWS::StackName}-security-group
+      GroupDescription: !Sub ${AWS::StackName}-security-group
       VpcId: !Ref VPC
     
 Outputs:
@@ -738,4 +952,5 @@ Outputs:
   SecurityGroups:
     Description: The VPC subnets attached to the Lambda function in the custom IdP solution.
     Value:
-      !If [CreateVPC, !Ref VPC, !Ref VpcId]          
+      !If [CreateVPC, !Ref SecurityGroup,  !Join [",", !Ref SecurityGroups]]
+

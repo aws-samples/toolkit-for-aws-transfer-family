@@ -10,7 +10,7 @@ patch_all()
 
 
 class SecretsManagerIdpModuleError(util.IdpModuleError):
-    "Used to raise module-specific exceptions"
+    """Used to raise module-specific exceptions"""
     pass
 
 
@@ -20,11 +20,11 @@ logger.setLevel(logging.DEBUG if os.environ.get("LOGLEVEL", "DEBUG") else loggin
 
 @xray_recorder.capture()
 def handle_auth(
-    event, parsed_username, user_record, identity_provider_record, response_data
+    event, parsed_username, user_record, identity_provider_record, response_data, authn_method
 ):
     logger.debug(user_record)
 
-    if not event.get("password", "").strip() == "":
+    if authn_method == util.AuthenticationMethod.PASSWORD:
         input_password = event["password"]
     else:
         logger.info("No password, checking for SSH key")
@@ -49,7 +49,7 @@ def handle_auth(
     else:
         raise SecretsManagerIdpModuleError("No secrets data returned, cannot proceed.")
 
-    if input_password != "":
+    if authn_method == util.AuthenticationMethod.PASSWORD:
         if "Password" in secret_dict:
             resp_password = secret_dict["Password"]
         else:

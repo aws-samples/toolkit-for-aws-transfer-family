@@ -18,7 +18,7 @@ phases:
       - rm -rf  "${ARTIFACTS_DIR}/python"
       - mkdir -p "${ARTIFACTS_DIR}/python"    
       - pipenv requirements > "${ARTIFACTS_DIR}/requirements.txt"
-      - python3 -m pip install -r "${ARTIFACTS_DIR}/requirements.txt" -t "{$ARTIFACTS_DIR}/python"    
+      - "python3 -m pip install --platform manylinux2014_x86_64 --only-binary=:all: -r \"${ARTIFACTS_DIR}/requirements.txt\" -t \"{$ARTIFACTS_DIR}/python\""    
       - sam build --template "custom-idp.yaml"
       - sam deploy  --stack-name "${StackName}"
                     --s3-bucket "${ARTIFACTS_BUCKET}"
@@ -26,6 +26,6 @@ phases:
                     --capabilities "CAPABILITY_NAMED_IAM"
                     --no-confirm-changeset
                     --on-failure DELETE
-                    --parameter-overrides "Subnets=\"${Subnets}\" SecurityGroups=\"${SecurityGroups}\" SecretsManagerPermissions=\"${SecretsManagerPermissions}\" UserNameDelimiter=\"${UserNameDelimiter}\" LogLevel=\"${LogLevel}\" ProvisionApi=\"${ProvisionApi}\" EnableTracing=\"${EnableTracing}\" UsersTableName=\"${UsersTable}\" IdentityProvidersTableName=\"${IdentityProvidersTable}\""
+                    --parameter-overrides "Subnets=\"${Subnets}\" SecurityGroups=\"${SecurityGroups}\" SecretsManagerPermissions=\"${SecretsManagerPermissions}\" UserNameDelimiter=\"${UserNameDelimiter}\" LogLevel=\"${LogLevel}\" ProvisionApi=\"${ProvisionApi}\" EnableTracing=\"${EnableTracing}\" UsersTableName=\"${UsersTableName}\" IdentityProvidersTableName=\"${IdentityProvidersTableName}\""
 
 
