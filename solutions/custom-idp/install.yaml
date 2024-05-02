@@ -953,3 +953,4 @@ Outputs:
     Description: The VPC subnets attached to the Lambda function in the custom IdP solution.
     Value:
       !If [CreateVPC, !Ref SecurityGroup,  !Join [",", !Ref SecurityGroups]]
+
