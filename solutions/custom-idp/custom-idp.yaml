@@ -621,6 +621,14 @@ Resources:
       GroupName: !Sub ${AWS::StackName}-security-group
       GroupDescription: !Sub ${AWS::StackName}-security-group
       VpcId: !Ref VPC
+      SecurityGroupEgress: 
+           - IpProtocol: -1
+             CidrIp: 0.0.0.0/0
+             Description: Allow all outbound traffic by default
+             FromPort: -1
+             ToPort: -1
+            
+      
 
 Outputs:
   IdpHandlerFunction:
