@@ -108,3 +108,4 @@ ENV/
 # IDE settings
 .vscode/
 .idea/
+**/samconfig.toml

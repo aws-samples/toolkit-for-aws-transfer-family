@@ -83,14 +83,16 @@ Resources:
           DirectoryDNSName: !Ref DirectoryDNSName
           DirectoryAdminPassword: !Ref DirectoryAdminPassword
           DirectoryBIOSName: !Ref DirectoryBIOSName
+          VpcPrivateSubnet0: !Select [ 0, !Split [ ",", !GetAtt CustomIdP.Outputs.SubnetList ]]
+          VpcPrivateSubnet1: !Select [ 1, !Split [ ",", !GetAtt CustomIdP.Outputs.SubnetList ]]           
+          VpcId: !GetAtt CustomIdP.Outputs.VPC
   CustomIdP:
       Type: 'AWS::CloudFormation::Stack'
       DeletionPolicy: Delete
       Properties:
-        TemplateURL: ../../template.yaml
+        TemplateURL: ../../custom-idp.yaml
         Parameters:
-          Subnets: !GetAtt ManagedAD.Outputs.PrivateSubnets
-          SecurityGroups: !GetAtt ManagedAD.Outputs.DefaultSecurityGroup
+          CreateVPC: 'true'
           SecretsManagerPermissions: !Ref SecretsManagerPermissions
           UserNameDelimiter: !Ref UserNameDelimiter
           LogLevel: !Ref LogLevel
@@ -98,14 +100,12 @@ Resources:
           EnableTracing: !Ref EnableTracing
           UsersTableName: !Ref UsersTableName
           IdentityProvidersTableName: !Ref IdentityProvidersTableName
-
   TransferServer:
       Type: 'AWS::CloudFormation::Stack'
       DeletionPolicy: Delete
       Properties:
         TemplateURL: ../transferserver/transfer-server-template.yaml
         Parameters:
-          SecurityGroupId: !GetAtt ManagedAD.Outputs.DefaultSecurityGroup
           AuthorizationFunctionArn: !GetAtt CustomIdP.Outputs.IdpHandlerFunction
           BucketName: !Sub ${AWS::StackName}
 Outputs:
