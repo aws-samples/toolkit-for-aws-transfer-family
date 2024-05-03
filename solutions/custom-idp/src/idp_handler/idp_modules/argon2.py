@@ -13,23 +13,28 @@ logger.setLevel(logging.DEBUG if os.environ.get("LOGLEVEL", "DEBUG") else loggin
 
 class Argon2IdpModuleError(util.IdpModuleError):
     """Used to raise module-specific exceptions"""
+
     pass
 
 
 @xray_recorder.capture()
 def handle_auth(
-    event, parsed_username, user_record, identity_provider_record, response_data, authn_method
+    event,
+    parsed_username,
+    user_record,
+    identity_provider_record,
+    response_data,
+    authn_method,
 ):
-    logger.debug(f"User record: {user_record}")  
+    logger.debug(f"User record: {user_record}")
 
     if authn_method != util.AuthenticationMethod.PASSWORD:
         raise Argon2IdpModuleError(
             "Password not specified, this provider does not support public key auth."
-    )
+        )
     user_record_config = user_record["config"]
     hashed_password = user_record_config.get("argon2_hash", "")
     logger.debug(f"Hashed password: {hashed_password}")
-    
 
     if hashed_password.strip() == "":
         raise Argon2IdpModuleError(
@@ -37,11 +42,9 @@ def handle_auth(
         )
 
     hasher = argon2.PasswordHasher()
-    # Throws an exception if password/hash is incorrect 
+    # Throws an exception if password/hash is incorrect
     hasher.verify(hashed_password, event["password"])
 
     logger.info(f"User {parsed_username} authenticated successfully.")
 
     return response_data
-
-

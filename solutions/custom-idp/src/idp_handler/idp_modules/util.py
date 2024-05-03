@@ -18,6 +18,7 @@ boto3_config = Config(retries={"max_attempts": 10, "mode": "standard"})
 
 class IdpModuleError(Exception):
     """Used to raise IdP module exceptions"""
+
     pass
 
 

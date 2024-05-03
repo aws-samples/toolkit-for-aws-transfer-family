@@ -12,12 +12,18 @@ logger.setLevel(logging.DEBUG if os.environ.get("LOGLEVEL", "DEBUG") else loggin
 
 class PublicKeyIdpModuleError(util.IdpModuleError):
     """Used to raise module-specific exceptions"""
+
     pass
 
 
 @xray_recorder.capture()
 def handle_auth(
-    event, parsed_username, user_record, identity_provider_record, response_data, authn_method
+    event,
+    parsed_username,
+    user_record,
+    identity_provider_record,
+    response_data,
+    authn_method,
 ):
     logger.debug(f"User record: {user_record}")
 

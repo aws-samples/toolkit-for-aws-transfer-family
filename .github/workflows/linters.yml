@@ -9,7 +9,7 @@ on:
     - "custom-idp/**"      
   pull_request:
     branches:
-      - main
+      - '*'
     paths:
     - "custom-idp/**"
 
@@ -35,6 +35,6 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install ruff
       - name: ruff format check
-        run: ruff format --check ./custom-idp
+        run: ruff format --check ./solutions/custom-idp
       - name: ruff check
-        run: ruff check --output-format=github ./custom-idp
+        run: ruff check --output-format=github ./solutions/custom-idp
