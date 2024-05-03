@@ -27,6 +27,7 @@ IDENTITY_PROVIDERS_TABLE = boto3.resource("dynamodb").Table(IDENTITY_PROVIDERS_T
 
 class IdpHandlerException(Exception):
     """Used to raise handler exceptions"""
+
     pass
 
 
@@ -44,6 +45,7 @@ def ip_in_cidr_list(ip_address, cidr_list):
             )
 
     return False
+
 
 @xray_recorder.capture()
 def lambda_handler(event, context):
@@ -76,10 +78,8 @@ def lambda_handler(event, context):
     logger.info(
         f"Parsed username and IdP: Username: {username} IDP: {identity_provider}"
     )
-    if username == '$':
-            raise IdpHandlerException(
-                f"Username $default$ is reserved and cannot be used."
-            )        
+    if username == "$":
+        raise IdpHandlerException(f"Username $default$ is reserved and cannot be used.")
     # Lookup user
     if identity_provider:
         user_record = USERS_TABLE.get_item(
@@ -239,19 +239,18 @@ def lambda_handler(event, context):
     )
 
     if event.get("password", "").strip() == "":
-        logger.info(
-            f"No password provided, performing public key auth."
-        )
+        logger.info(f"No password provided, performing public key auth.")
         authn_method = util.AuthenticationMethod.PUBLIC_KEY
     else:
-        logger.info(
-            f"Password provided, performing password auth."
-        )
+        logger.info(f"Password provided, performing password auth.")
         authn_method = util.AuthenticationMethod.PASSWORD
 
     # Some identity providers have built-in public key support, as specified in their config. If they don't, fall back to the public_key module.
-    if authn_method == util.AuthenticationMethod.PUBLIC_KEY and not identity_provider_record.get('public_key_support', False):
-        from idp_modules import public_key 
+    if (
+        authn_method == util.AuthenticationMethod.PUBLIC_KEY
+        and not identity_provider_record.get("public_key_support", False)
+    ):
+        from idp_modules import public_key
 
         response_data = public_key.handle_auth(
             event=event,
@@ -259,8 +258,8 @@ def lambda_handler(event, context):
             user_record=user_record,
             identity_provider_record=identity_provider_record,
             response_data=response_data,
-            authn_method=authn_method
-    )
+            authn_method=authn_method,
+        )
     else:
         # Load the identity provider module and perform authentication with the provider
         identity_provider_module = importlib.import_module(
@@ -272,7 +271,7 @@ def lambda_handler(event, context):
             user_record=user_record,
             identity_provider_record=identity_provider_record,
             response_data=response_data,
-            authn_method=authn_method
+            authn_method=authn_method,
         )
 
     # HomeDirectoryDetails must be a stringified list
@@ -283,7 +282,10 @@ def lambda_handler(event, context):
             )
 
     # An extra check to make sure we've really authenticated, prevent accidental authentication. There should always be either at least 1 public key in response, or 'password' authentication should have been used.
-    if len(response_data.get("PublicKeys", [])) < 1 and event.get("password", "").strip() == "":
+    if (
+        len(response_data.get("PublicKeys", [])) < 1
+        and event.get("password", "").strip() == ""
+    ):
         raise IdpHandlerException(
             "PublicKeys is empty and password was not set. Check user config and authentication module logic."
         )

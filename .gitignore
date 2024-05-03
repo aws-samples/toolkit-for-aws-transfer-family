@@ -1,6 +1,8 @@
 .DS_Store
 solutions/custom-idp/Pipfile.lock
 solutions/custom-idp/src/handler_layer**
+.aws-sam
+
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

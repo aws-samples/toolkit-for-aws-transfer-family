@@ -9,7 +9,7 @@ on:
     - "custom-idp/**"      
   pull_request:
     branches:
-      - main
+      - '*'
     paths:
     - "custom-idp/**"
 

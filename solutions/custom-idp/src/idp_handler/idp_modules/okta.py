@@ -16,6 +16,7 @@ http = urllib3.PoolManager()
 
 class OktaIdpModuleError(util.IdpModuleError):
     """Used to raise module-specific exceptions"""
+
     pass
 
 
@@ -235,14 +236,17 @@ def okta_get_user_groups(url, session_cookie):
 
 @xray_recorder.capture()
 def handle_auth(
-    event, parsed_username, user_record, identity_provider_record, response_data, authn_method
+    event,
+    parsed_username,
+    user_record,
+    identity_provider_record,
+    response_data,
+    authn_method,
 ):
     logger.debug(f"User record: {user_record}")
 
     if authn_method == util.AuthenticationMethod.PUBLIC_KEY:
-        raise OktaIdpModuleError(
-            "This provider does not support public key auth."
-        )
+        raise OktaIdpModuleError("This provider does not support public key auth.")
 
     user_record_config = user_record["config"]
     okta_domain = identity_provider_record["config"]["okta_domain"]

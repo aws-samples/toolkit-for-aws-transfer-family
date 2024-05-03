@@ -1,8 +1,8 @@
 ---
 name: Question
 about: Ask general questions using this form. Please ask with as many useful details as possible.
-title: ''
-labels: question
+title: '[QUESTION] <title>'
+labels: ["question", "Needs Triage"]
 assignees: ''
 
 ---
