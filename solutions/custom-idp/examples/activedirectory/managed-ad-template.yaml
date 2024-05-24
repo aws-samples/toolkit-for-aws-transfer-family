@@ -17,14 +17,20 @@ Parameters:
     Default: corp
     MinLength: 3
     MaxLength: 20
+  VpcPrivateSubnet0:
+    Description: PrivateSubnet that the ActiveDirectory will be deployed
+    Type: String
+    MinLength: 3
+  VpcPrivateSubnet1:
+    Description: PrivateSubnet that the ActiveDirectory will be deployed
+    Type: String
+    MinLength: 3
+  VpcId:
+    Description: VPC Id
+    Type: String
+    MinLength: 3
+
 Resources:
-  VpcStack:
-      Type: 'AWS::CloudFormation::Stack'
-      DeletionPolicy: Delete
-      Properties:
-        TemplateURL: ./vpc-cfn.yaml
-        Parameters:
-          VPCName: !Ref AWS::StackName
   ManagedAD: 
     Type: AWS::DirectoryService::MicrosoftAD
     Properties: 
@@ -35,10 +41,10 @@ Resources:
       CreateAlias: true
       VpcSettings: 
         SubnetIds: 
-          - !GetAtt VpcStack.Outputs.PrivateSubnet0
-          - !GetAtt VpcStack.Outputs.PrivateSubnet1
+          - !Ref VpcPrivateSubnet0
+          - !Ref VpcPrivateSubnet1
         VpcId: 
-          !GetAtt VpcStack.Outputs.VPCId
+          !Ref VpcId
 
 Outputs:
   DirectoryID:
@@ -53,16 +59,4 @@ Outputs:
   DirectoryAlias:
     Description: AD alias
     Value: !GetAtt ManagedAD.Alias
-  VpcId:
-    Description: Vpc Id
-    Value: !GetAtt VpcStack.Outputs.VPCId
-  PrivateSubnets:
-    Description: Private Subnets created
-    Value: !Join [ ",", [ !GetAtt VpcStack.Outputs.PrivateSubnet0, !GetAtt VpcStack.Outputs.PrivateSubnet1 ]]
-  PublicSubnets:
-    Description: Public Subnets created
-    Value: !Join [ ",", [ !GetAtt VpcStack.Outputs.PublicSubnet0, !GetAtt VpcStack.Outputs.PublicSubnet1 ]]
-  DefaultSecurityGroup:
-    Description: Default Security Group created
-    Value: !GetAtt VpcStack.Outputs.DefaultSecurityGroup
   

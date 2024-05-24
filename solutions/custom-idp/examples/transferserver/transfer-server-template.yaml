@@ -1,9 +1,6 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: This CloudFormation template will deploy a AWS Transfer Family Server that supports SFTP Protocol
 Parameters:
-  SecurityGroupId:
-    Type: String
-    Description: Security Group Id
   AuthorizationFunctionArn:
     Type: String
     Description: Identity Provider Url

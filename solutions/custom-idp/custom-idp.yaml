@@ -628,7 +628,6 @@ Resources:
              FromPort: -1
              ToPort: -1
             
-  
 
 Outputs:
   IdpHandlerFunction:
