@@ -1,0 +1,9 @@
+version: 0.2
+phases:
+  install:
+    runtime-versions:
+      python: 3.11
+  build:
+    commands:
+      - echo If this curl command times out, verify the VPC has connectivity to DynamoDB and try again.
+      - curl -v -m 10 https://dynamodb.$AWS_REGION.amazonaws.com

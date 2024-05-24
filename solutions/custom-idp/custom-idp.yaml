@@ -1,0 +1,659 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+
+Parameters:
+  CreateVPC:
+    Description: 'When set, creates a pre-configured VPC for the custom IDP solution and uses it for the custom IdP Lambda function to simplify deployment. The VPC will contain public/private subnets for two AZs, two NAT Gateways, a Security Group, and a DynamoDB Gateway endpoint. If this is set to false, VPC, subnet, and security group information must be provided.'
+    Type: String
+    AllowedValues: ['true', 'false']
+    Default: 'false'
+  VPCCIDR:
+    Description: 'The CIDR to use for when creating a new VPC. The CIDR should be at least a /24 and will be divided evenly across 4 subnets. Required if CreateVPC is set.'
+    Type: String
+    Default: 172.31.0.0/16
+    AllowedPattern: ^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\/(1[6-9]|2[0-8]))$
+  VpcId:
+    Type: String
+    Description: An existing VPC to attach the Lambda function to. Must be set if CreateVPC is not set to true.
+    AllowedPattern: ^(vpc-[0-9a-z]+)$|^$
+    Default: ''
+  Subnets:
+    Description: A list of VPC subnets to attach the custom IdP Lambda to. To allow the Lambda function to connect to public IdP endpoints such as Okta, ensure the subnets are configure to route internet traffic to a NAT gateway in a public subnet. If the Lambda function will reside in private subnet without internet access, ensure a DynamoDB Gateway Endpoint is configured in the VPC. Must be set if CreateVPC is not set to true.
+    Type: CommaDelimitedList
+    ConstraintDescription: You must supply least one existing subnet. Subnets must reside in the same VPC.
+    AllowedPattern: ^(subnet-[0-9a-z]+)$|^$
+    Default: ''
+  SecurityGroups:
+    Description: Security Groups to attach to the Lambda. Must be set if CreateVPC is not set to true.
+    Type: CommaDelimitedList
+    AllowedPattern: ^(sg-[0-9a-z]+)$|^$
+    Default: ''
+  SecretsManagerPermissions:
+    Description: 'When set, grants the custom IdP Lambda execution role permission to read Secrets Manager secrets. Note: this is required to use the secrets_manager module, or any other IdP module that depends on Secrets Manager in the future.'
+    Type: String
+    AllowedValues: ['true', 'false']
+    Default: 'false'
+  UserNameDelimiter:
+    Description: Delimiter for user name
+    Type: String
+    Default: '@'
+    AllowedValues:
+      - '@'
+      - '$'
+      - '\\'
+      - '/'
+    AllowedPattern: '[@\\\/\-]'
+    MaxLength: 1
+    MinLength: 1
+  LogLevel:
+    Description: 'The log level to configure for Lambda authentication function. Set to DEBUG for verbose logging to be used for troubleshooting. WARNING: This may result in sensitive information being put into logs.'
+    Type: String
+    Default: 'INFO'
+    AllowedValues:
+         - INFO
+         - DEBUG
+  ProvisionApi:
+    Description: 'When set, provisions an API Gateway REST API. Enable this if you would like AWS Transfer to use a REST-based custom IdP instead of directly invoking the Lambda function.'
+    Type: String
+    Default: 'false'
+    AllowedValues:
+      - 'true'
+      - 'false'
+  EnableTracing:
+    Description: When set, enables X-ray tracing on various components
+    Type: String
+    Default: 'false'
+    AllowedValues:
+    - 'true'
+    - 'false'
+  
+  UsersTableName:
+    Description: The name of an existing DynamoDB table to use for Users. If blank, a new table will be created.
+    Type: String
+    Default: ''
+
+  IdentityProvidersTableName:
+    Description: The name of an existing DynamoDB table to use for Identity Providers. If blank, a new table will be created.
+    Type: String
+    Default: ''
+
+Metadata:
+     AWS::CloudFormation::Interface:
+      ParameterGroups:
+        - Label: 
+            default: Network Configuration
+          Parameters:
+            - CreateVPC
+            - VPCCIDR
+            - VpcId
+            - Subnets 
+            - SecurityGroups 
+        - Label: 
+            default: Identity Provider Solution Settings
+          Parameters:
+            - UserNameDelimiter
+            - SecretsManagerPermissions
+            - ProvisionApi   
+            - LogLevel
+            - EnableTracing 
+        - Label: 
+            default: Existing DynamoDB Tables 
+          Parameters:
+            - UsersTableName
+            - IdentityProvidersTableName
+
+Conditions:
+  CreateVPC: !Equals [!Ref CreateVPC, 'true']
+  SecretsManagerPermission: !Equals [!Ref SecretsManagerPermissions, 'true']
+  ApiEnabled: !Equals [!Ref ProvisionApi, 'true']
+  TracingEnabled: !Equals [!Ref EnableTracing, 'true']
+  CreateUsersTable: !Equals [!Ref UsersTableName, '']
+  CreateIdentityProvidersTable: !Equals [!Ref IdentityProvidersTableName, '']
+
+Globals:
+  Function:
+    Timeout: 15
+    MemorySize: 1024
+    Tracing:
+      Fn::If:
+      - TracingEnabled
+      - Active
+      - Ref: AWS::NoValue
+  Api:
+    TracingEnabled: true
+
+
+Resources:
+  IdpHandlerLayer:
+    Type: AWS::Serverless::LayerVersion
+    Properties:
+      LayerName: !Sub ${AWS::StackName}-handler-layer
+      ContentUri: src/handler_layer
+      CompatibleRuntimes:
+        - python3.10
+        - python3.11
+    Metadata:
+      BuildMethod: python3.11
+
+  IdpHandlerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/idp_handler/
+      Handler: app.lambda_handler
+      Runtime: python3.11
+      FunctionName: !Sub ${AWS::StackName}-idp
+      Layers:
+        - !Ref IdpHandlerLayer
+      Environment:
+        Variables:
+          USERS_TABLE: !If [CreateUsersTable, !Sub "${AWS::StackName}_users", !Ref UsersTableName]
+          IDENTITY_PROVIDERS_TABLE: !If [CreateIdentityProvidersTable, !Sub "${AWS::StackName}_identity_providers", !Ref IdentityProvidersTableName]
+          USER_NAME_DELIMITER: !Ref UserNameDelimiter
+          LOGLEVEL: !Ref LogLevel
+          AWS_XRAY_TRACING_NAME: !Sub ${AWS::StackName}
+      VpcConfig:
+        SubnetIds: !If [CreateVPC, [!Ref PrivateSubnet1,!Ref PrivateSubnet2], !Ref Subnets]
+        SecurityGroupIds: !If [CreateVPC, [!Ref SecurityGroup], !Ref SecurityGroups]
+      Architectures:
+      - x86_64
+      Policies:
+        - Version: '2012-10-17' 
+          Statement:
+            - Effect: Allow
+              Action:
+                - transfer:DescribeServer
+              Resource: 
+                - !Sub arn:${AWS::Partition}:transfer:${AWS::Region}:${AWS::AccountId}:server/*
+            - Effect: Allow
+              Action:
+                - dynamodb:GetItem
+                - dynamodb:Query
+              Resource: 
+                - !If 
+                    - CreateIdentityProvidersTable
+                    - !Sub arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${AWS::StackName}_identity_providers
+                    - !Sub arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${IdentityProvidersTableName}
+                - !If
+                    - CreateUsersTable
+                    - !Sub arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${AWS::StackName}_users
+                    - !Sub arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${UsersTableName}
+
+            - !If 
+              - SecretsManagerPermission
+              - Effect: Allow
+                Action: 
+                  - secretsmanager:GetSecretValue
+                Resource: 
+                  - !Sub arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:*
+              - !Ref AWS::NoValue
+                  
+
+  IdpHandlerFunctionPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref IdpHandlerFunction
+      Action: lambda:InvokeFunction
+      Principal: "transfer.amazonaws.com"
+      SourceAccount: !Ref AWS::AccountId
+
+  ApplicationResourceGroup:
+    Type: AWS::ResourceGroups::Group
+    Properties:
+      Name: !Sub ${AWS::StackName}
+      ResourceQuery:
+        Type: CLOUDFORMATION_STACK_1_0
+
+  CustomIdentityProviderApi:
+    Type: AWS::ApiGateway::RestApi
+    Condition: ApiEnabled
+    Properties:
+      Name: Custom Identity Provider API for AWS Transfer
+      Description: API used for GetUserConfig requests
+      FailOnWarnings: true
+      EndpointConfiguration:
+        Types:
+        - REGIONAL
+  ApiCloudWatchLogsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${AWS::StackName}-api-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - apigateway.amazonaws.com
+          Action:
+          - sts:AssumeRole
+      Policies:
+      - PolicyName: ApiGatewayLogsPolicy
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Action:
+            - logs:CreateLogGroup
+            - logs:CreateLogStream
+            - logs:DescribeLogGroups
+            - logs:DescribeLogStreams
+            - logs:FilterLogEvents
+            - logs:GetLogEvents
+            - logs:PutLogEvents
+            Resource: '*'
+
+  ApiLoggingAccount:
+    Type: AWS::ApiGateway::Account
+    Properties:
+      CloudWatchRoleArn: !Sub ${ApiCloudWatchLogsRole.Arn}
+
+  ApiStage:
+    Type: AWS::ApiGateway::Stage
+    Condition: ApiEnabled    
+    Properties:
+      StageName: prod
+      DeploymentId: !Ref ApiDeployment
+      MethodSettings:
+        - DataTraceEnabled: !If [TracingEnabled, true, false]
+          HttpMethod: "*"
+          LoggingLevel: INFO
+          ResourcePath: "/*"
+      RestApiId: !Ref CustomIdentityProviderApi
+
+  ApiDeployment:
+    Type: AWS::ApiGateway::Deployment
+    DependsOn: GetUserConfigRequest
+    Condition: ApiEnabled    
+    Properties:
+      RestApiId: !Ref CustomIdentityProviderApi        
+
+  ApiLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Condition: ApiEnabled
+    Properties:
+      Action: lambda:invokeFunction
+      FunctionName: !Ref IdpHandlerFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${CustomIdentityProviderApi}/*
+  ServersResource:
+    Type: AWS::ApiGateway::Resource
+    Condition: ApiEnabled
+    Properties:
+      RestApiId: !Ref CustomIdentityProviderApi
+      ParentId: !GetAtt CustomIdentityProviderApi.RootResourceId
+      PathPart: servers
+  ServerIdResource:
+    Type: AWS::ApiGateway::Resource
+    Condition: ApiEnabled
+    Properties:
+      RestApiId: !Ref CustomIdentityProviderApi
+      ParentId: !Ref ServersResource
+      PathPart: "{serverId}"
+  UsersResource:
+    Type: AWS::ApiGateway::Resource
+    Condition: ApiEnabled
+    Properties:
+      RestApiId: !Ref CustomIdentityProviderApi
+      ParentId: !Ref ServerIdResource
+      PathPart: users
+  UserNameResource:
+    Type: AWS::ApiGateway::Resource
+    Condition: ApiEnabled
+    Properties:
+      RestApiId: !Ref CustomIdentityProviderApi
+      ParentId: !Ref UsersResource
+      PathPart: "{username}"
+  GetUserConfigResource:
+    Type: AWS::ApiGateway::Resource
+    Condition: ApiEnabled
+    Properties:
+      RestApiId: !Ref CustomIdentityProviderApi
+      ParentId: !Ref UserNameResource
+      PathPart: config
+  GetUserConfigRequest:
+    Type: AWS::ApiGateway::Method
+    Condition: ApiEnabled
+    DependsOn: GetUserConfigResponseModel
+    Properties:
+      AuthorizationType: AWS_IAM
+      HttpMethod: GET
+      Integration:
+        Type: AWS
+        IntegrationHttpMethod: POST
+        Uri: !Sub arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${IdpHandlerFunction.Arn}/invocations
+        IntegrationResponses:
+        - StatusCode: 200
+        RequestTemplates:
+          application/json: |
+            {
+              "username": "$util.urlDecode($input.params('username'))",
+              "password": "$util.escapeJavaScript($util.base64Decode($input.params('PasswordBase64'))).replaceAll("\\'","'")",
+              "protocol": "$input.params('protocol')",
+              "serverId": "$input.params('serverId')",
+              "sourceIp": "$input.params('sourceIp')"
+            }
+      RequestParameters:
+        method.request.header.PasswordBase64: false
+        method.request.querystring.protocol: false
+        method.request.querystring.sourceIp: false
+      ResourceId: !Ref GetUserConfigResource
+      RestApiId: !Ref CustomIdentityProviderApi
+      MethodResponses:
+      - StatusCode: 200
+        ResponseModels:
+          application/json: UserConfigResponseModel
+
+  GetUserConfigResponseModel:
+    Type: AWS::ApiGateway::Model
+    Condition: ApiEnabled
+    Properties:
+      RestApiId: !Ref CustomIdentityProviderApi
+      ContentType: application/json
+      Description: API response for GetUserConfig
+      Name: UserConfigResponseModel
+      Schema:
+        "$schema": http://json-schema.org/draft-04/schema#
+        title: UserUserConfig
+        type: object
+        properties:
+          HomeDirectory:
+            type: string
+          Role:
+            type: string
+          Policy:
+            type: string
+          PublicKeys:
+            type: array
+            items:
+              type: string
+
+  TransferIdentityProviderApiRole:
+    Type: AWS::IAM::Role
+    Condition: ApiEnabled
+    Properties:
+      RoleName: !Sub "${AWS::StackName}_transfer-api-role"
+      AssumeRolePolicyDocument:    
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service: transfer.amazonaws.com
+          Action:
+            - sts:AssumeRole
+          Condition:
+            StringEquals:
+              "aws:SourceAccount": !Sub ${AWS::AccountId}
+            ArnLike: 
+              "aws:sourceArn": !Sub "arn:${AWS::Partition}:transfer:${AWS::Region}:${AWS::AccountId}:server/*"
+      Policies:
+      - PolicyName: TransferCanInvokeThisApi
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Action:
+            - execute-api:Invoke
+            Resource: !Sub arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${CustomIdentityProviderApi}/prod/GET/*
+      - PolicyName: TransferCanReadThisApi
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Action:
+            - apigateway:GET
+            Resource: "*"
+
+  usersTable: 
+    Condition: CreateUsersTable
+    UpdateReplacePolicy: Retain
+    DeletionPolicy: RetainExceptOnCreate    
+    Type: AWS::DynamoDB::Table
+    Properties: 
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions: 
+        - AttributeName: "user"
+          AttributeType: "S"
+        - AttributeName: "identity_provider_key"
+          AttributeType: "S"
+      KeySchema: 
+        - AttributeName: "user"
+          KeyType: "HASH"
+        - AttributeName: "identity_provider_key"
+          KeyType: "RANGE"
+      TableName: !Sub ${AWS::StackName}_users
+
+  identityProvidersTable: 
+    Condition: CreateIdentityProvidersTable
+    UpdateReplacePolicy: Retain
+    DeletionPolicy: RetainExceptOnCreate
+    Type: AWS::DynamoDB::Table
+    Properties: 
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions: 
+        - AttributeName: "provider"
+          AttributeType: "S"
+      KeySchema: 
+        - AttributeName: "provider"
+          KeyType: "HASH"
+      TableName: !Sub ${AWS::StackName}_identity_providers  
+  VPC:
+    Condition: CreateVPC
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref "VPCCIDR"
+      EnableDnsSupport: True
+      EnableDnsHostnames: True
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-vpc
+  InternetGateway:
+    Condition: CreateVPC
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-igw"      
+  InternetGatewayAttachment:
+    Condition:  CreateVPC
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+  PublicSubnet1:
+    Condition: CreateVPC
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref "VPC"
+      CidrBlock: !Select [0, !Cidr [!Ref VPCCIDR, 4, 8]]
+      AvailabilityZone: !Select [0, Fn::GetAZs: !Ref "AWS::Region"]
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-vpc-subnet-public-aza" 
+      MapPublicIpOnLaunch: true
+  PublicSubnet2:
+    Condition: CreateVPC
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref "VPC"
+      CidrBlock: !Select [1, !Cidr [!Ref VPCCIDR, 4, 8]]
+      AvailabilityZone: !Select [1, Fn::GetAZs: !Ref "AWS::Region"]
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-vpc-subnet-public-azb"      
+  PublicSubnetRouteTable:
+    Condition: CreateVPC
+    DependsOn: InternetGatewayAttachment
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref "VPC"
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-vpc-rtb-public"
+  PublicSubnetRoute:
+    Condition: CreateVPC
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref "PublicSubnetRouteTable"
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+ 
+  PublicSubnet1RouteTableAssociation:
+    Condition: CreateVPC
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref "PublicSubnet1"
+      RouteTableId: !Ref "PublicSubnetRouteTable"
+  PublicSubnet2RouteTableAssociation:
+    Condition: CreateVPC
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref "PublicSubnet2"
+      RouteTableId: !Ref "PublicSubnetRouteTable"   
+  ElasticIP1:
+    Condition: CreateVPC
+    Type: "AWS::EC2::EIP"
+  ElasticIP2:
+    Condition: CreateVPC
+    Type: "AWS::EC2::EIP"   
+  NATGateway1:
+    Condition: CreateVPC
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt ElasticIP1.AllocationId
+      SubnetId: !Ref 'PublicSubnet1'
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-natgw-aza
+  NATGateway2:
+    Condition: CreateVPC
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt ElasticIP2.AllocationId
+      SubnetId: !Ref 'PublicSubnet2'
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-natgw-azb              
+  PrivateSubnet1:
+    Condition: CreateVPC
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref "VPC"
+      CidrBlock: !Select [2, !Cidr [!Ref VPCCIDR, 4, 8]]
+      AvailabilityZone: !Select [0, Fn::GetAZs: !Ref "AWS::Region"]
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-vpc-subnet-private-aza"
+  PrivateSubnet2:
+    Condition: CreateVPC
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref "VPC"
+      CidrBlock: !Select [3, !Cidr [!Ref VPCCIDR, 4, 8]]
+      AvailabilityZone: !Select [1, Fn::GetAZs: !Ref "AWS::Region"]
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-vpc-subnet-private-azb"          
+
+  PrivateSubnet1RouteTable:
+    Condition: CreateVPC
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref "VPC"
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-rtb-private-aza"     
+  PrivateSubnet1RouteTableAssociation:
+    Condition: CreateVPC
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref "PrivateSubnet1"
+      RouteTableId: !Ref "PrivateSubnet1RouteTable"           
+  PrivateSubnet2RouteTableAssociation:
+    Condition: CreateVPC
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref "PrivateSubnet2"
+      RouteTableId: !Ref "PrivateSubnet2RouteTable"          
+  PrivateSubnet2RouteTable:
+    Condition: CreateVPC
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref "VPC"
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-rtb-private-azb"        
+  PrivateSubnet1Route:
+    Condition: CreateVPC
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref "PrivateSubnet1RouteTable"
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NATGateway1
+  PrivateSubnet2Route:
+    Condition: CreateVPC
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref "PrivateSubnet2RouteTable"
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NATGateway2    
+  DDBVPCEndpoint:
+    Condition: CreateVPC
+    Type: "AWS::EC2::VPCEndpoint"
+    Properties:
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Action: "*"
+            Effect: Allow
+            Resource: "*"
+            Principal: "*"
+      RouteTableIds:
+        - !Ref "PublicSubnetRouteTable"
+        - !Ref "PrivateSubnet1RouteTable"
+        - !Ref "PrivateSubnet2RouteTable"
+      ServiceName: !Join ["", [com.amazonaws., !Ref "AWS::Region", .dynamodb]]
+      VpcId: !Ref "VPC"
+  SecurityGroup:
+    Condition: CreateVPC
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub ${AWS::StackName}-security-group
+      GroupDescription: !Sub ${AWS::StackName}-security-group
+      VpcId: !Ref VPC
+      SecurityGroupEgress: 
+           - IpProtocol: -1
+             CidrIp: 0.0.0.0/0
+             Description: Allow all outbound traffic by default
+             FromPort: -1
+             ToPort: -1
+            
+
+Outputs:
+  IdpHandlerFunction:
+    Description: IDP Handler Arn
+    Value: !GetAtt IdpHandlerFunction.Arn
+  IdpHandlerLogGroupUrl:
+    Description: Link to IdpHandler Lambda logs.
+    Value: !Sub https://${AWS::Region}.console.aws.amazon.com/cloudwatch/home?region=${AWS::Region}#logsV2:log-groups/log-group/$252Faws$252Flambda$252F${IdpHandlerFunction}
+  ApiUrl:
+    Condition: ApiEnabled
+    Description: URL to specify for an API-based AWS Transfer customer identity provider
+    Value:
+      !Sub https://${CustomIdentityProviderApi}.execute-api.${AWS::Region}.amazonaws.com/${ApiStage}
+  ApiRole:
+    Condition: ApiEnabled
+    Description: The name of the IAM role created for AWS Transfer to use when invoking the API
+    Value: !Ref TransferIdentityProviderApiRole  
+  VPC:
+    Description: The VPC that is used with the custom IdP solution.
+    Value:
+      !If [CreateVPC, !Ref VPC, !Ref VpcId]   
+  SubnetList:
+    Description: The subnets used by the Lambda function in the custom IdP solution.
+    Value:
+      !If [CreateVPC, !Join [",", [!Ref PrivateSubnet1, !Ref PrivateSubnet2]], !Join [",", !Ref Subnets]]         
+  SecurityGroupsList:
+    Description: The VPC subnets attached to the Lambda function in the custom IdP solution.
+    Value:
+      !If [CreateVPC, !Ref SecurityGroup,  !Join [",", !Ref SecurityGroups]] 

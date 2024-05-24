@@ -1,0 +1,102 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: This CloudFormation template will deploy a AWS Transfer Family Server that supports SFTP Protocol
+Parameters:
+  AuthorizationFunctionArn:
+    Type: String
+    Description: Identity Provider Url
+  BucketName:
+    Type: String
+    Description: Bucket Name
+
+Resources:
+  SFTPServer:
+    Type: AWS::Transfer::Server
+    Properties:
+      EndpointType: PUBLIC
+      Protocols: [SFTP]
+      IdentityProviderType: AWS_LAMBDA
+      IdentityProviderDetails:
+        Function: !Ref AuthorizationFunctionArn
+      Tags:
+        - Key: Application
+          Value: !Sub ${AWS::StackName}
+
+  SFTPServerS3Bucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    Properties:
+      BucketName: !Join
+        - "-"
+        - - !Ref BucketName
+          - Fn::Select:
+              - 4
+              - Fn::Split:
+                  - "-"
+                  - Fn::Select:
+                      - 2
+                      - Fn::Split:
+                          - /
+                          - Ref: AWS::StackId
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      Tags:
+        - Key: Application
+          Value: !Sub For ${AWS::StackName} Stack
+  SFTPUserRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - transfer.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: /
+      Policies:
+        - PolicyName: S3FullAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:ListAllMyBuckets
+                  - s3:GetBucketLocation
+                Resource: "*"
+        - PolicyName: AllowListingOfUserFolder
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:ListBucket
+                Resource: !GetAtt SFTPServerS3Bucket.Arn
+        - PolicyName: HomeDirObjectAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                  - s3:GetObjectVersion
+                  - s3:DeleteObject
+                  - s3:DeleteObjectVersion
+                Resource: !Sub "${SFTPServerS3Bucket.Arn}/*"
+
+Outputs:
+  TransferServerID:
+    Description: Transfer Server ID
+    Value: !GetAtt SFTPServer.ServerId
+  SFTPServerS3Bucket:
+    Description: Transfer Server Bucket
+    Value: !Ref SFTPServerS3Bucket
+  SFTPUserRole:
+    Description: Transfer Server FTP User Role
+    Value: !Ref SFTPUserRole
+

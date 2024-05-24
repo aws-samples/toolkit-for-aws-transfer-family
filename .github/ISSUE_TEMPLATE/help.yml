@@ -1,0 +1,55 @@
+name: Help and troubleshooting
+description: Create a request for help and troubleshooting.
+title: "[HELP] <title>"
+labels: "help"
+
+body:
+  - type: textarea
+    attributes:
+      label: Describe the problem you are having and need assistance with.
+      description: >-
+        A clear description of what you're requesting assistance with. Include log entries and error messages wherever possible. **Do not include any sensitive information.**
+    validations:
+      required: true
+  - type: dropdown
+    id: category
+    attributes:
+      label: Category/Solution
+      description: Provide the category or solution this is related to.
+      options:
+        - Custom IdP Solution
+        - Other
+      validations:
+        required: true
+  - type: textarea
+    attributes:
+      label: Configuration information
+      description: Please provide the details of what you've setup and what you are trying to do. Include any details about the architecture or configuration parameters that may be helpful. If possible, provide steps to reproduce the behavior.
+      value: |
+        ```
+        *P.S. Please do not attach files as it's considered a security risk. Add code snippets directly in the message body as much as possible.*
+        ```
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: Screenshots
+      description: >-
+        If applicable, add screenshots to help explain your problem.
+    validations:
+      required: false
+
+  - type: input
+    attributes:
+      label: AWS Region
+      description: >-
+        Provide the AWS region(s) you are using.
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Additional context
+      description: >-
+        Add any other context about the problem here.
+        [e.g. URL or Ticket]
