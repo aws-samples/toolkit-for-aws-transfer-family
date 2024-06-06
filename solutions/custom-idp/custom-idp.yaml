@@ -630,6 +630,9 @@ Resources:
             
 
 Outputs:
+  IdpHandlerLayer:
+    Description: IDP Handler Layer
+    Value: !Ref IdpHandlerLayer
   IdpHandlerFunction:
     Description: IDP Handler Arn
     Value: !GetAtt IdpHandlerFunction.Arn
