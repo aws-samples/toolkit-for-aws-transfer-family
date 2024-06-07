@@ -15,7 +15,7 @@ class LdapIdpModuleError(Exception):
 client_secrets = boto3.client('secretsmanager', region_name=os.environ["Region"])
 client_ds = boto3.client('ds', region_name=os.environ["Region"])
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 
 
 def lambda_handler(event, context):
@@ -64,10 +64,10 @@ def lambda_handler(event, context):
                     f"Unable to create user. Last error: {ldap_connection.result['description']}"
                 )
 
-            client_ds.reset_user_password(DirectoryId=directory_id, UserName=new_username, NewPassword=new_user_password)
-
             ldap_connection.unbind()
             logger.debug(ldap_connection.result)
+
+            client_ds.reset_user_password(DirectoryId=directory_id, UserName=new_username, NewPassword=new_user_password)
 
             send_response(event, context, "SUCCESS", {"message":f"User {new_user_cn} created successfully."})
             return 
@@ -85,8 +85,7 @@ def get_secret(secret_name):
         logger.debug(f"getting secret {secret_name}")
         get_secret_value_response = client_secrets.get_secret_value(SecretId=secret_name)
         logging.info("Secret retrieved successfully.")
-        SecretString=get_secret_value_response["SecretString"]
-        return SecretString
+        return get_secret_value_response["SecretString"]
     except client_secrets.exceptions.ResourceNotFoundException:
         msg = f"The requested secret {secret_name} was not found."
         logger.info(msg)
@@ -128,11 +127,11 @@ def send_response(event, context, response_status, response_data, physical_resou
         'content-length' : str(len(json_response_body))
     }
 
-    logger.info("AMI Lookup  Event Lambda handler sending response request " + json.dumps(json_response_body))
+    logger.info("AEvent Lambda handler sending response request " + json.dumps(json_response_body))
     try:
         response = http.request("PUT", response_url,
                                 body=json_response_body,
                                 headers=headers)
-        logger.info(f"AMI Lookup handler status: {response.status}")
+        logger.info(f"handler status: {response.status}")
     except Exception as e:
         logger.error("send_response(..) failed executing http.request(..): " + str(e))
