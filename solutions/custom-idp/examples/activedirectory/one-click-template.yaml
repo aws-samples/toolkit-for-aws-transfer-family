@@ -18,6 +18,13 @@ Parameters:
     MaxLength: 20
     NoEcho: true
     Default: 'johnsmith'
+  DirectoryNewUserPassword:
+    Description: New AD User Password
+    Type: String
+    MinLength: 5
+    MaxLength: 20
+    NoEcho: true
+
   DirectoryBIOSName:
     Description: Microsoft ActiveDirectory BIOS Name
     Type: String
@@ -133,6 +140,8 @@ Resources:
           ADSearchBase: !Ref DirectorySearchBase
           ADSSL: 'false'
           NewADUser: !Ref DirectoryNewUsername
+          NewADUserPassword: !Ref DirectoryNewUserPassword
+          DirectoryId: !GetAtt ManagedAD.Outputs.DirectoryID
 Outputs:
   DirectoryID:
     Description: ID of the MS Directory

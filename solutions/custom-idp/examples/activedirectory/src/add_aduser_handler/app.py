@@ -13,16 +13,15 @@ class LdapIdpModuleError(Exception):
 
 
 client_secrets = boto3.client('secretsmanager', region_name=os.environ["Region"])
+client_ds = boto3.client('ds', region_name=os.environ["Region"])
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
 
 def lambda_handler(event, context):
     try:
-        logger.debug(json.dumps(event))
-
         if event['RequestType'] == 'Create':
-
+            directory_id = os.environ["DirectoryId"]
             ldap_host = os.environ["ADServerDNS"]
             ldap_port = os.environ["ADServerPort"]
             ldap_ssl = os.environ["ADSSL"]=='true'
@@ -30,6 +29,7 @@ def lambda_handler(event, context):
             domain_username = get_secret(os.environ["ADDomainUser"])
             domain_user_password =  get_secret(os.environ["ADDomainUserPassword"])
             new_username = get_secret(os.environ["ADNewUser"])
+            new_user_password = get_secret(os.environ["NewADUserPassword"])
             ldap_ssl_verify = True
             new_user_cn = f"cn={new_username},{ldap_search_base}"
 
@@ -64,11 +64,7 @@ def lambda_handler(event, context):
                     f"Unable to create user. Last error: {ldap_connection.result['description']}"
                 )
 
-            ldap_connection.modify(new_user_cn, {'userAccountControl': [('MODIFY_REPLACE', 544)]})
-            if ldap_connection.result["result"] != 0:
-                raise LdapIdpModuleError(
-                    f"Unable to create user. Last error: {ldap_connection.result['description']}"
-                )
+            client_ds.reset_user_password(DirectoryId=directory_id, UserName=new_username, NewPassword=new_user_password)
 
             ldap_connection.unbind()
             logger.debug(ldap_connection.result)
@@ -90,7 +86,6 @@ def get_secret(secret_name):
         get_secret_value_response = client_secrets.get_secret_value(SecretId=secret_name)
         logging.info("Secret retrieved successfully.")
         SecretString=get_secret_value_response["SecretString"]
-        logger.debug(f"value {SecretString}")
         return SecretString
     except client_secrets.exceptions.ResourceNotFoundException:
         msg = f"The requested secret {secret_name} was not found."

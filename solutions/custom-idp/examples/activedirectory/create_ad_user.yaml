@@ -37,7 +37,14 @@ Parameters:
     Description: New AD User
     Type: String
     NoEcho: true
-  
+  NewADUserPassword:
+    Description: New AD User Password
+    Type: String
+    NoEcho: true
+  DirectoryId:
+    Description: ActiveDirectory ID
+    Type: String
+      
 Conditions:
   SSL: !Equals [!Ref ADSSL, 'true']
 
@@ -61,6 +68,12 @@ Resources:
       Description: AD New User Secret
       Name: !Sub ${AWS::StackName}-NewADUser
       SecretString: !Ref NewADUser
+  NewADUserPasswordSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Description: AD New User Secret
+      Name: !Sub ${AWS::StackName}-NewADUserPassword
+      SecretString: !Ref NewADUserPassword
   AddADUserLambda:
     Type: AWS::CloudFormation::CustomResource
     Properties:
@@ -68,7 +81,6 @@ Resources:
         !Sub
         - arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${LambdaFunctionName}
         - { LambdaFunctionName: !Ref CreateADUserHandlerFunction }
-      Region: !Sub '${AWS::Region}'
   CreateADHandlerFunctionPermission:
     Type: AWS::Lambda::Permission
     Properties:
@@ -83,6 +95,7 @@ Resources:
       - ADDomainUserSecret
       - ADDomainUserPasswordSecret
       - ADNewUserSecret
+      - NewADUserPasswordSecret
     Properties:
       CodeUri: src/add_aduser_handler/
       Handler: app.lambda_handler
@@ -98,9 +111,11 @@ Resources:
           ADDomainUser: !Sub ${AWS::StackName}-ADDomainUser
           ADDomainUserPassword: !Sub ${AWS::StackName}-ADDomainUserPassword
           ADNewUser: !Sub ${AWS::StackName}-NewADUser
+          NewADUserPassword: !Sub ${AWS::StackName}-NewADUserPassword
           ADSSL: !Ref ADSSL
           ADSearchBase: !Ref ADSearchBase
           Region: !Sub ${AWS::Region}
+          DirectoryId: !Ref DirectoryId
       VpcConfig:
         SubnetIds: !Split
               - ","
@@ -122,3 +137,9 @@ Resources:
                 - secretsmanager:GetSecretValue
               Resource: 
                 - !Sub arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:*
+            - Effect: Allow
+              Action:
+                - ds:ResetUserPassword
+              Resource:
+                - !Sub arn:${AWS::Partition}:ds:${AWS::Region}:${AWS::AccountId}:directory/${DirectoryId}
+
