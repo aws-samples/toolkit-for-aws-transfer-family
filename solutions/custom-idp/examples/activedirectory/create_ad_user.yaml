@@ -36,7 +36,6 @@ Parameters:
   NewADUser:
     Description: New AD User
     Type: String
-    NoEcho: true
   NewADUserPassword:
     Description: New AD User Password
     Type: String
@@ -100,6 +99,7 @@ Resources:
       CodeUri: src/add_aduser_handler/
       Handler: app.lambda_handler
       Runtime: python3.11
+      Timeout: 30
       FunctionName: !Sub ${AWS::StackName}-add_ad_user
       Layers:
         - !Ref IdpHandlerLayerArn

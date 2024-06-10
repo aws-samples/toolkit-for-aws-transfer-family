@@ -16,7 +16,6 @@ Parameters:
     Type: String
     MinLength: 5
     MaxLength: 20
-    NoEcho: true
     Default: 'johnsmith'
   DirectoryNewUserPassword:
     Description: New AD User Password
