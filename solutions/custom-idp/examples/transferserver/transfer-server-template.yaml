@@ -17,6 +17,7 @@ Resources:
       IdentityProviderType: AWS_LAMBDA
       IdentityProviderDetails:
         Function: !Ref AuthorizationFunctionArn
+      LoggingRole: !GetAtt CloudWatchLoggingRole.Arn
       Tags:
         - Key: Application
           Value: !Sub ${AWS::StackName}
@@ -88,7 +89,32 @@ Resources:
                   - s3:DeleteObject
                   - s3:DeleteObjectVersion
                 Resource: !Sub "${SFTPServerS3Bucket.Arn}/*"
-
+  CloudWatchLoggingRole:
+    Description: IAM role used by Transfer to log API requests to CloudWatch
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - transfer.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: TransferLogsPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:DescribeLogStreams
+                  - logs:PutLogEvents
+                Resource:
+                  Fn::Sub: '*'
 Outputs:
   TransferServerID:
     Description: Transfer Server ID

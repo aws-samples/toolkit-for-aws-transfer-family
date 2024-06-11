@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: 'This template deploys the full stack for Transfer Server including Transfer Server, custom IdP, Microsoft AD, VPC and Subnets'
+Description: 'This template deploys the full stack of the solution including Transfer Server stack, custom IdP stack, Microsoft AD Stack and new User Creation Stack'
 Parameters:
   DirectoryDNSName:
     Description: Microsoft ActiveDirectory DNS Name
