@@ -1,0 +1,145 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+
+Parameters:
+  IdpHandlerLayerArn:
+    Description: Arn for the IdpHandlerLayer
+    Type: String
+  SecurityGroupsList:
+    Description: A list of SecurityGroup Ids    
+    Type: String
+  SubnetList:
+    Description: A list of Subnet Ids
+    Type: String
+  ADServerDNS:
+    Description: AD Server DNS
+    Type: String
+  ADServerPort:
+    Description: AD Server Port
+    Type: String
+  ADDomainUser:
+    Description: AD DomainUser
+    Type: String
+    NoEcho: true
+  ADDomainUserPassword:
+    Description: AD DomainUser Password
+    Type: String
+    NoEcho: true
+  ADSearchBase:
+    Description: AD User Search Base
+    Type: String
+  ADSSL:
+    Description: Whether to use SSL
+    Type: String
+    Default: 'false' 
+  NewADUser:
+    Description: New AD User
+    Type: String
+  NewADUserPassword:
+    Description: New AD User Password
+    Type: String
+    NoEcho: true
+  DirectoryId:
+    Description: ActiveDirectory ID
+    Type: String
+      
+Conditions:
+  SSL: !Equals [!Ref ADSSL, 'true']
+
+
+Resources:
+  ADDomainUserSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Description: AD Domain User Secret
+      Name: !Sub ${AWS::StackName}-ADDomainUser
+      SecretString: !Ref ADDomainUser
+  ADDomainUserPasswordSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Description: AD Domain User Password Secret
+      Name: !Sub ${AWS::StackName}-ADDomainUserPassword
+      SecretString: !Ref ADDomainUserPassword
+  ADNewUserSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Description: AD New User Secret
+      Name: !Sub ${AWS::StackName}-NewADUser
+      SecretString: !Ref NewADUser
+  NewADUserPasswordSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Description: AD New User Secret
+      Name: !Sub ${AWS::StackName}-NewADUserPassword
+      SecretString: !Ref NewADUserPassword
+  AddADUserLambda:
+    Type: AWS::CloudFormation::CustomResource
+    Properties:
+      ServiceToken:
+        !Sub
+        - arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${LambdaFunctionName}
+        - { LambdaFunctionName: !Ref CreateADUserHandlerFunction }
+  CreateADHandlerFunctionPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref CreateADUserHandlerFunction
+      Action: lambda:InvokeFunction
+      Principal: "lambda.amazonaws.com"
+      SourceAccount: !Ref AWS::AccountId
+ 
+  CreateADUserHandlerFunction:
+    Type: AWS::Serverless::Function
+    DependsOn:
+      - ADDomainUserSecret
+      - ADDomainUserPasswordSecret
+      - ADNewUserSecret
+      - NewADUserPasswordSecret
+    Properties:
+      CodeUri: src/add_aduser_handler/
+      Handler: app.lambda_handler
+      Runtime: python3.11
+      Timeout: 30
+      FunctionName: !Sub ${AWS::StackName}-add_ad_user
+      Layers:
+        - !Ref IdpHandlerLayerArn
+      Environment:
+        Variables:
+          AWS_XRAY_TRACING_NAME: !Sub ${AWS::StackName}
+          ADServerDNS: !Ref ADServerDNS
+          ADServerPort: !Ref ADServerPort
+          ADDomainUser: !Sub ${AWS::StackName}-ADDomainUser
+          ADDomainUserPassword: !Sub ${AWS::StackName}-ADDomainUserPassword
+          ADNewUser: !Sub ${AWS::StackName}-NewADUser
+          NewADUserPassword: !Sub ${AWS::StackName}-NewADUserPassword
+          ADSSL: !Ref ADSSL
+          ADSearchBase: !Ref ADSearchBase
+          Region: !Sub ${AWS::Region}
+          DirectoryId: !Ref DirectoryId
+      VpcConfig:
+        SubnetIds: !Split
+              - ","
+              - !Ref SubnetList
+        SecurityGroupIds: !Split
+              - ","
+              - !Ref SecurityGroupsList
+      Architectures:
+      - x86_64
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - 'ec2:DescribeImages'
+              Resource: '*'
+            - Effect: Allow
+              Action: 
+                - secretsmanager:GetSecretValue
+              Resource: 
+                - !Sub arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:*
+            - Effect: Allow
+              Action:
+                - ds:ResetUserPassword
+              Resource:
+                - !Sub arn:${AWS::Partition}:ds:${AWS::Region}:${AWS::AccountId}:directory/${DirectoryId}
+

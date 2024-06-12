@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: 'This template deploys the full stack for Transfer Server including Transfer Server, custom IdP, Microsoft AD, VPC and Subnets'
+Description: 'This template deploys the full stack of the solution including Transfer Server stack, custom IdP stack, Microsoft AD Stack and new User Creation Stack'
 Parameters:
   DirectoryDNSName:
     Description: Microsoft ActiveDirectory DNS Name
@@ -11,13 +11,29 @@ Parameters:
     MinLength: 5
     MaxLength: 20
     NoEcho: true
+  DirectoryNewUsername:
+    Description: New AD Username
+    Type: String
+    MinLength: 5
+    MaxLength: 20
+    Default: 'johnsmith'
+  DirectoryNewUserPassword:
+    Description: New AD User Password
+    Type: String
+    MinLength: 5
+    MaxLength: 20
+    NoEcho: true
+
   DirectoryBIOSName:
     Description: Microsoft ActiveDirectory BIOS Name
     Type: String
     Default: corp
     MinLength: 3
     MaxLength: 20
-
+  DirectorySearchBase:
+    Description: Active Directory Search Base e.g. OU=Users,OU=corp,DC=corp,DC=demoftp,DC=com
+    Type: String
+    Default: "OU=Users,OU=corp,DC=corp,DC=demoftp,DC=com"
   SecretsManagerPermissions:
     Description: Grant Lambda execution role permission to read Secrets Manager secrets (required to use the secrets_manager module)
     Type: String
@@ -25,7 +41,6 @@ Parameters:
     AllowedValues:
       - 'true'
       - 'false'
-
   UserNameDelimiter:
     Description: Delimiter for user name
     Type: String
@@ -108,6 +123,24 @@ Resources:
         Parameters:
           AuthorizationFunctionArn: !GetAtt CustomIdP.Outputs.IdpHandlerFunction
           BucketName: !Sub ${AWS::StackName}
+  AddADUser:
+      Type: 'AWS::CloudFormation::Stack'
+      DeletionPolicy: Delete
+      Properties:
+        TemplateURL: ./create_ad_user.yaml
+        Parameters:
+          IdpHandlerLayerArn: !GetAtt CustomIdP.Outputs.IdpHandlerLayer
+          SecurityGroupsList: !GetAtt CustomIdP.Outputs.SecurityGroupsList
+          SubnetList: !GetAtt CustomIdP.Outputs.SubnetList
+          ADServerDNS: !GetAtt ManagedAD.Outputs.PrimaryDNS
+          ADServerPort: 389
+          ADDomainUser: 'Admin'
+          ADDomainUserPassword: !Ref DirectoryAdminPassword
+          ADSearchBase: !Ref DirectorySearchBase
+          ADSSL: 'false'
+          NewADUser: !Ref DirectoryNewUsername
+          NewADUserPassword: !Ref DirectoryNewUserPassword
+          DirectoryId: !GetAtt ManagedAD.Outputs.DirectoryID
 Outputs:
   DirectoryID:
     Description: ID of the MS Directory
