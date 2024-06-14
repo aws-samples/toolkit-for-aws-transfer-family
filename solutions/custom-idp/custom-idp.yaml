@@ -37,13 +37,12 @@ Parameters:
   UserNameDelimiter:
     Description: Delimiter for user name
     Type: String
-    Default: '@'
+    Default: '$'
     AllowedValues:
       - '@'
       - '$'
       - '\\'
       - '/'
-    AllowedPattern: '[@\\\/\-]'
     MaxLength: 1
     MinLength: 1
   LogLevel:
