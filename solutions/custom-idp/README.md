@@ -722,11 +722,16 @@ The `ldap` module supports authentication with Active Directory and LDAP servers
       },
       "ssl_verify": {
         "BOOL": [true or false]
+      },
+      "ldap_service_account_secret_arn": {
+        "S": "[ARN of Secrets Manager secret]"
       }
-    }
   },
   "module": {
     "S": "ldap"
+  },
+  "public_key_support": {
+    "BOOL": true
   }
 }
 ```
@@ -807,6 +812,31 @@ Constraints: Must be `true` or `false`
 Required: No
 
 Default: `true`
+
+**config/ldap_service_account_secret_arn***
+
+An optional ARN of a Secrets Manager secret that contains the credentials for an Active Directory or LDAP service account that will be used check if an account is locked or disabled when the authentication request is Public Key. This is useful if you wish to support public key authentication for AD users, but still check the status of the user's account and retrieve LDAP attributes for the user such as UID and GID. 
+
+When this value is set, the `SecretsManagerPermissions` parameter in the installation template must be set to `True` so that the custom IdP Lamba function has permission to retrieve the secret. 
+
+The service account must have permission to read User objects an their attributes, including the `userAccountControl` attribute, which is used to determine if an Active Directory account has been disabled.
+
+The Secrets Manager secret value should be in the following format:
+
+```json
+{
+  "username": "<USERNAME>",
+  "password": "<PASSWORD>"
+}
+```
+
+Type: String
+
+Constraints: Must be a valid Secrets Manager ARN.
+
+Required: No
+
+Default: *none*
 
 **config/attributes**
 
@@ -896,7 +926,10 @@ Default: `false`
   },
   "module": {
     "S": "ldap"
-  }
+  },
+  "public_key_support": {
+    "BOOL": true
+  }  
 }
 ```
 #### Okta
