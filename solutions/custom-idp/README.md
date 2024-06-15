@@ -723,6 +723,9 @@ The `ldap` module supports authentication with Active Directory and LDAP servers
       "ssl_verify": {
         "BOOL": [true or false]
       },
+      "ldap_ssl_ca_secret_arn": {
+        "S": "[ARN of Secrets Manager secret]"
+      },      
       "ldap_service_account_secret_arn": {
         "S": "[ARN of Secrets Manager secret]"
       }
@@ -812,6 +815,26 @@ Constraints: Must be `true` or `false`
 Required: No
 
 Default: `true`
+
+**config/ldap_ssl_ca_secret_arn**
+An optional ARN of a Secrets Manager secret that contains the CA certificate that will be used to verify the authenticity of the SSL certificate presented by LDAPS. This is useful if your Active Directory domain or LDAPS server uses a private CA and you want to enable `ssl_verify` to enforce SSL verification of the server. If this value is not specified and `ssl_verify` is enabled, the default certificate store built into Lambda will be used.
+
+When this value is set, the `SecretsManagerPermissions` parameter in the installation template must be set to `True` so that the custom IdP Lambda function has permission to retrieve the secret. 
+
+The Secrets Manager secret should contain a plaintext string with the root certificate in the following format:
+```
+-----BEGIN CERTIFICATE-----
+CERTIFICATE CONTENTS HERE
+-----END CERTIFICATE-----
+```
+
+Type: String
+
+Constraints: Must be a valid Secrets Manager ARN.
+
+Required: No
+
+Default: *none*
 
 **config/ldap_service_account_secret_arn***
 
