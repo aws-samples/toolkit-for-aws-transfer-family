@@ -1,8 +1,9 @@
 import base64
 import logging
 import os
-
+import datetime
 import boto3
+import random
 from aws_xray_sdk.core import patch_all, xray_recorder
 from botocore.config import Config
 from botocore.exceptions import ClientError
@@ -64,3 +65,37 @@ def get_transfer_server_details(server_id):
             f'Error Talking to AWS Transfer API: {err.response["Error"]["Code"]}, Message: {str(err)}'
         )
         return None
+
+
+@xray_recorder.capture()
+def fetch_cache(cache, key, exp_time, jitter=120):
+    if cache.get(key, None) is None or (
+        datetime.datetime.now()
+        - cache.get(key, {}).get("timestamp", datetime.datetime.fromtimestamp(0))
+    ).seconds > exp_time + random.randint(0, jitter):
+        logger.info(f"Cache for {key} does not exist or is expired. Returning None")
+        return None
+    else:
+        logger.info(f"Using cached value for {key}")
+
+    return cache[key]["value"]
+
+
+@xray_recorder.capture()
+def set_cache(cache, key, value):
+    if cache is None:
+        cache = {}
+    logger.info(f"Setting value for key {key} in cache")
+    cache[key] = {
+        "value": value,
+        "timestamp": datetime.datetime.now(),
+    }
+    return cache
+
+
+@xray_recorder.capture()
+def fetch_secret_cache(secret_cache, secret_arn, exp_time=60):
+    if fetch_cache(secret_cache, secret_arn, exp_time) is None:
+        logger.info(f"Fetching secret {secret_arn}")
+        set_cache(secret_cache, secret_arn, get_secret(secret_arn))
+    return secret_cache[secret_arn]["value"]

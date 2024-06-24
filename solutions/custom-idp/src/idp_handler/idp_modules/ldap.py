@@ -1,7 +1,7 @@
 import logging
 import os
 import ssl
-
+import json
 import ldap3
 from aws_xray_sdk.core import patch_all, xray_recorder
 from idp_modules import util
@@ -16,6 +16,7 @@ class LdapIdpModuleError(util.IdpModuleError):
     """Used to raise module-specific exceptions"""
 
     pass
+secret_cache = {}
 
 
 @xray_recorder.capture()
@@ -29,47 +30,99 @@ def handle_auth(
 ):
     logger.debug(f"User record: {user_record}")
 
-    if authn_method != util.AuthenticationMethod.PASSWORD:
-        raise LdapIdpModuleError(
-            "Password not specified, this provider does not support public key auth."
-        )
-
     identity_provider_config = identity_provider_record["config"]
     ldap_host = identity_provider_config["server"]
     ldap_port = int(identity_provider_config.get("port", 636))
     ldap_ssl = identity_provider_config.get("ssl", True)
     ldap_ssl_verify = identity_provider_config.get("ssl_verify", True)
+    ldap_ssl_ca_secret_arn = identity_provider_config.get(
+        "ldap_ssl_ca_secret_arn", None
+    )
     ldap_attributes = identity_provider_config.get("attributes", {})
     ldap_search_base = identity_provider_config["search_base"]
+    ldap_service_account_secret_arn = identity_provider_config.get(
+        "ldap_service_account_secret_arn", None
+    )
     ldap_ignore_missing_attributes = identity_provider_config.get(
         "ignore_missing_attributes", False
     )
-    if "domain" in identity_provider_config:
-        ldap_domain = identity_provider_config["domain"]
-        domain_username = f"{ldap_domain}\{parsed_username}"
-    else:
-        domain_username = parsed_username
+    ldap_ssl_ca = None
 
-    logger.info(f"LDAP domain username: {domain_username}")
+    if ldap_service_account_secret_arn:
+        ldap_attributes["userAccountControl"] = "userAccountControl"
 
     ldap_attribute_query_list = []
-
     for attribute in ldap_attributes:
         ldap_attribute_query_list.append(ldap_attributes[attribute])
 
+    if ldap_ssl_ca_secret_arn:
+        ldap_ssl_ca = util.fetch_secret_cache(secret_cache, ldap_ssl_ca_secret_arn)
+
     ldap_tls = ldap3.Tls(
-        validate=ssl.CERT_NONE if not ldap_ssl_verify else ssl.CERT_REQUIRED
+        validate=ssl.CERT_NONE if not ldap_ssl_verify else ssl.CERT_REQUIRED,
+        ca_certs_data=(
+            ldap_ssl_ca if not ldap_ssl_ca is None and ldap_ssl_verify else None
+        ),
     )
     ldap_server = ldap3.Server(
         host=ldap_host, port=ldap_port, use_ssl=ldap_ssl, tls=ldap_tls
     )
-    ldap_connection = ldap3.Connection(
-        server=ldap_server,
-        user=domain_username,
-        password=event["password"],
-        auto_bind=True,
-    )
 
+    if authn_method == util.AuthenticationMethod.PASSWORD:
+        if "domain" in identity_provider_config:
+            ldap_domain = identity_provider_config["domain"]
+            domain_username = f"{ldap_domain}\{parsed_username}"
+        else:
+            domain_username = parsed_username
+
+        ldap_connection = ldap3.Connection(
+            server=ldap_server,
+            user=domain_username,
+            password=event["password"],
+            auto_bind=True,
+        )
+    elif authn_method == util.AuthenticationMethod.PUBLIC_KEY:
+        from . import public_key
+
+        if not ldap_service_account_secret_arn is None:
+            logger.info(
+                f"Public key auth and LDAP service account configured. Attempting to use service account to retrieve user details and verify account status."
+            )
+            service_account = json.loads(
+                util.fetch_secret_cache(secret_cache, ldap_service_account_secret_arn)
+            )
+            if "domain" in identity_provider_config:
+                ldap_domain = identity_provider_config["domain"]
+                domain_username = f"{ldap_domain}\{service_account['username']}"
+            else:
+                domain_username = service_account["username"]
+
+            ldap_connection = ldap3.Connection(
+                server=ldap_server,
+                user=domain_username,
+                password=service_account["password"],
+                auto_bind=True,
+            )
+
+        else:
+            logger.info(
+                "No service account configured. Passing to public key auth module."
+            )
+            response_data = public_key.handle_auth(
+                event=event,
+                parsed_username=parsed_username,
+                user_record=user_record,
+                identity_provider_record=identity_provider_record,
+                response_data=response_data,
+                authn_method=authn_method,
+            )
+            return response_data
+    else:
+        raise LdapIdpModuleError(
+            "LDAP module does not support this authentication method ({authn_method})."
+        )
+
+    logger.info(f"LDAP domain username: {domain_username}")
     logger.debug(f"ldap_connection: {ldap_connection}")
 
     logger.info("Attempting LDAP bind")
@@ -83,6 +136,7 @@ def handle_auth(
         )
 
     logger.info(f"whoami: {ldap_connection.extend.standard.who_am_i()}")
+    logger.info(f"Checking user status")
 
     if len(ldap_attribute_query_list) > 0:
         logger.info(
@@ -107,7 +161,7 @@ def handle_auth(
             )
         if len(search_response) > 1:
             raise LdapIdpModuleError(
-                f"The LDAP search for user {parsed_username} returned no results. Enable debug logging and check LDAP response for more information."
+                f"The LDAP search for user {parsed_username} returned multiple results, which should not occur. Enable debug logging and check LDAP response for more information."
             )
 
     # Normalize empty values to simplify checking if a value is missing or empty
@@ -121,6 +175,28 @@ def handle_auth(
         else:
             ldap_resolved_attributes[attribute] = None
     logger.debug(f"Resolved LDAP attributes: {ldap_resolved_attributes}")
+
+    if (
+        authn_method == util.AuthenticationMethod.PUBLIC_KEY
+        and not ldap_service_account_secret_arn is None
+        and ldap_resolved_attributes.get("userAccountControl", None) is None
+    ):
+        raise LdapIdpModuleError(
+            f"Unable to retrieve account status for user {parsed_username} to determine if it is locked or disabled. Verify the service account used has Read permission on user objects."
+        )
+
+    if not ldap_resolved_attributes.get("userAccountControl", None) is None:
+        logger.debug(
+            f"userAccountControl: {ldap_resolved_attributes['userAccountControl']}"
+        )
+        if ldap_resolved_attributes["userAccountControl"] & 2:
+            raise LdapIdpModuleError(
+                f"Account for user {parsed_username} is disabled. Failing authentication."
+            )
+        if ldap_resolved_attributes["userAccountControl"] & 16:
+            raise LdapIdpModuleError(
+                f"Account for user {parsed_username} is locked. Failing authentication."
+            )
 
     if "Role" in ldap_attributes:
         if not ldap_resolved_attributes["Role"] is None:
@@ -170,4 +246,13 @@ def handle_auth(
                 f"LDAP attribute {ldap_attributes['Uid']} for 'Uid' and/or {ldap_attributes['Gid']}  for 'Gid' were empty or missing. Enable debug logging adn check LDAP response. To ignore, use the ignore_missing_attributes setting in the identity provider config."
             )
 
+    if authn_method == util.AuthenticationMethod.PUBLIC_KEY:
+        response_data = public_key.handle_auth(
+            event=event,
+            parsed_username=parsed_username,
+            user_record=user_record,
+            identity_provider_record=identity_provider_record,
+            response_data=response_data,
+            authn_method=authn_method,
+        )
     return response_data
