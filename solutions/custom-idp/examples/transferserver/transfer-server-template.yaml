@@ -124,5 +124,5 @@ Outputs:
     Value: !Ref SFTPServerS3Bucket
   SFTPUserRole:
     Description: Transfer Server FTP User Role
-    Value: !Ref SFTPUserRole
+    Value: !GetAtt SFTPUserRole.Arn
 
