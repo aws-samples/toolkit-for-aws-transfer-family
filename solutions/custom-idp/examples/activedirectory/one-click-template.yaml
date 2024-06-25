@@ -157,5 +157,8 @@ Outputs:
   SFTPServerS3Bucket:  
     Description: S3 Bucket Name
     Value: !GetAtt TransferServer.Outputs.SFTPServerS3Bucket
-      
+  TransferServerEndpoint:
+    Description: Transfer Server Endpoint
+    Value: !GetAtt TransferServer.Outputs.TransferServerEndpoint
+
                       

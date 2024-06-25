@@ -125,4 +125,10 @@ Outputs:
   SFTPUserRole:
     Description: Transfer Server FTP User Role
     Value: !GetAtt SFTPUserRole.Arn
-
+  TransferServerEndpoint:
+    Description: Transfer Server Endpoint
+    Value: !Join [".", 
+        [!GetAtt SFTPServer.ServerId,
+        "server.transfer",
+        !Ref "AWS::Region", 
+        "amazonaws.com"]]
