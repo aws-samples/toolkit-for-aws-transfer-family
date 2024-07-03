@@ -22,28 +22,31 @@ Content
   - [Test the provider](#test-the-provider)
   - [Next steps](#next-steps)
 - [Getting help](#getting-help)
+- [User record reference](#user-record-reference)
+  - [DynamoDB Record Schema](#dynamodb-record-schema)
+  - [Parameters](#parameters)
 - [Identity provider modules](#identity-provider-modules)
   - [How the identity provider modules work](#how-the-identity-provider-modules-work)
   - [Identity provider module reference](#identity-provider-module-reference)
     - [Argon2](#argon2)
-      - [DynamoDB Record Schema](#dynamodb-record-schema)
-      - [Parameters](#parameters)
-      - [Example](#example)
-    - [LDAP and Active Directory](#ldap-and-active-directory)
       - [DynamoDB Record Schema](#dynamodb-record-schema-1)
       - [Parameters](#parameters-1)
-      - [Example](#example-1)
-    - [Okta](#okta)
+      - [Example](#example)
+    - [LDAP and Active Directory](#ldap-and-active-directory)
       - [DynamoDB Record Schema](#dynamodb-record-schema-2)
       - [Parameters](#parameters-2)
-      - [Example](#example-2)
-    - [Public Key](#public-key)
+      - [Example](#example-1)
+    - [Okta](#okta)
       - [DynamoDB Record Schema](#dynamodb-record-schema-3)
       - [Parameters](#parameters-3)
+      - [Example](#example-2)
+    - [Public Key](#public-key)
+      - [DynamoDB Record Schema](#dynamodb-record-schema-4)
+      - [Parameters](#parameters-4)
       - [Example](#example-3)
     - [Secrets Manager](#secrets-manager)
 - [AWS Transfer session settings inheritance](#aws-transfer-session-settings-inheritance)
-  - [user record](#user-record)
+  - [Example](#example-4)
 - [Modifying/updating solution parameters](#modifyingupdating-solution-parameters)
 - [Uninstall the solution](#uninstall-the-solution)
   - [Cleanup remaining artifacts](#cleanup-remaining-artifacts)
@@ -133,26 +136,20 @@ The solution contains two DynamoDB tables:
 
     ![CloudShell session running](screenshots/ss-deploy-01-cloudshell.png)
 
-2. Install the Python 3.11 into your environment.
-
-    ```
-    sudo yum install python3.11 python3.11-pip -y
-    ```
-
-3. Clone the solution into your environment:
+2. Clone the solution into your environment:
     ```
     cd ~
     git clone https://github.com/aws-samples/toolkit-for-aws-transfer-family.git
     ```
     
-4. Run the following command to run the build script, which downloads all package dependencies and generates archives for the Lambda layer and function used in the solution.
+3. Run the following command to run the build script, which downloads all package dependencies and generates archives for the Lambda layer and function used in the solution.
     ```
     cd ~/toolkit-for-aws-transfer-family/solutions/custom-idp
     ./build.sh
     ```
     Monitor the execution and verify the script completes successfully.
 
-5. Begin the SAM deployment by using the following command
+4. Begin the SAM deployment by using the following command
 
     ```
     sam deploy --guided --capabilities "CAPABILITY_NAMED_IAM"
@@ -325,7 +322,7 @@ Once identity providers are defined, user records must be created. Each user rec
   ```json
   {
     "user": {
-      "S": "johnsmith"
+      "S": "jsmith"
     },
     "identity_provider_key": {
       "S": "publickeys"
@@ -517,7 +514,7 @@ The record above dynamically maps Active Directory/LDAP attributes `uidNumber`, 
 ### Test the provider
 To test the identity provider `publickeys` and user `joesmith` created in the previous sections, use an SFTP client to connect to the AWS Transfer server. For example, on a Linux or Mac client with `sftp` client installed open a terminal window and enter the command to connect:
 ```bash
-  sftp -i path/to/privatekey johnsmith@[transfer-server-endpoint-address]
+  sftp -i path/to/privatekey jsmith@[transfer-server-endpoint-address]
 ```
 
 Below is an example of a successful connection and file/directory listing:
@@ -541,6 +538,238 @@ The best way to interact with our team is through GitHub. You can open an [issue
 
 You may also find help on [AWS re:Post](https://repost.aws). When asking a question, tag it with `AWS Transfer Family`.
  
+
+## User record reference
+Each user record in DynamoDB must follow the schema below to be valid. Some fields are optional, or required in specific scenarios. Note that  module could store additional per-user information in the user record. For example, the `argon` module stores the user's password hash in the `argon2_hash` field within the `config` map. Any custom fields such as this are documented in the identity provider module reference section.
+
+### DynamoDB Record Schema
+```json
+  {
+    "user": {
+      "S": "[username]"
+    },
+    "identity_provider_key": {
+      "S": "[module]"
+    },  
+    "config": {
+      "M": {
+        "HomeDirectoryDetails": {
+          "L": [
+            {
+              "M": {
+                "Entry": {
+                  "S": "[logical directory name]"
+                },
+                "Target": {
+                  "S": "[S3 or EFS Path]"
+                }
+              }
+            }
+          ]
+        },
+        "HomeDirectory": {
+          "S": "[S3 or EFS Path]"
+        },        
+        "HomeDirectoryType": {
+          "S": "[LOGICAL or PATH]"
+        },
+        "PosixProfile": {
+          "M": {
+            "Gid": {
+              "S": "[UID]"
+            },
+            "Uid": {
+              "S": "[GID]"
+            }
+          }
+        },
+        "PublicKeys": {
+          "SS": [
+            "ssh-ed25519 [PUBLICKEY]",
+            "ssh-rsa [PUBLICKEY]"
+          ]
+        },
+        "Role": {
+          "S": "arn:aws:iam::[AWS Account Id]:role/[Role Name]"
+        },
+        "Policy": {
+          "S": "[Session Policy Statement]"
+        },        
+      }
+    },
+    "ipv4_allow_list": {
+      "SS": [
+        "[CIDR]",
+        "[CIDR]"
+      ]
+    }
+  }
+```
+### Parameters
+**user**
+
+The username of the user that will be authenticating to the identity provider.
+
+> [!IMPORTANT]  
+> The username **must be all lowercase**. 
+> 
+> In order to perform the lookup in the users DynamoDB table without forcing a full scan, the solution converts the username to lowercase and retrieves the record(s) matching that user. Therefore, all usernames must be entered as lowercase.
+> 
+
+**Type:** String
+
+**Constraints:** None
+
+**Required:** Yes
+
+**identity_provider_key**
+
+A name used for referencing the identity provider in the `identity_providers` table to perform authentication. This value is also used when users specify an identity provider during authentication (e.g. `username@identity_provider_key`).
+
+Type: String
+
+Constraints: None
+
+Required: Yes
+
+**config/HomeDirectoryDetails**
+
+The list of `HomeDirectoryDetails` entries. These Logical directory mappings that specify which Amazon S3 or Amazon EFS paths and keys should be visible to your user and how you want to make them visible. You must specify the Entry and Target pair, where Entry shows how the path is made visible and Target is the actual Amazon S3 or Amazon EFS path.
+
+The format is:
+
+```json
+        "HomeDirectoryDetails": {
+          "L": [
+            {
+              "M": {
+                "Entry": {
+                  "S": "[logical directory name]"
+                },
+                "Target": {
+                  "S": "[S3 or EFS Path]"
+                }
+              }
+            },
+            {
+              "M": {
+                "Entry": {
+                  "S": "[logical directory name]"
+                },
+                "Target": {
+                  "S": "[S3 or EFS Path]"
+                }
+              }
+            }            
+          ]
+        },
+```
+
+Type: List[Map]
+
+Constraints: Must be a list of `Map` values, each with a map key being `Entry` and value name being `Target`. 
+
+Required: Yes if `HomeDirectoryType` is `LOGICAL`. Otherwise, no.
+
+**config/HomeDirectory**
+
+The landing directory (S3 or EFS path) for a user when they log in to the server using the client.
+
+Type: String
+
+Constraints: Must be a list of `Map` values, each with a map key being `Entry` and value name being `Target`. 
+
+Required: Yes if `HomeDirectoryType` is `PATH` or not set. Otherwise, no.
+
+**config/PosixProfile**
+
+The landing directory (S3 or EFS path) for a user when they log in to the server using the client.
+
+The format is:
+```json
+        "PosixProfile": {
+          "M": {
+            "Gid": {
+              "S": "[UID]"
+            },
+            "Uid": {
+              "S": "[GID]"
+            }
+          }
+        },
+```
+
+Type: List[Map]
+
+Constraints: Must be a list of `Map` with entries for `Uid` and `Gid`. 
+
+Required: Yes, if the AWS Transfer Server accesses an EFS filesystem. Otherwise, no.
+
+
+**config/PublicKeys**
+
+A list of SSH public key values that are valid for this user. 
+
+The format is:
+
+```json
+        "PublicKeys": {
+          "SS": [
+            "ssh-ed25519 [PUBLICKEY]",
+            "ssh-rsa [PUBLICKEY]"
+          ]
+        },
+```
+
+Type: StringSet
+
+Constraints: Must be a non-empty StringSet of valid public keys.
+
+Required: No
+
+**config/Role**
+
+Specifies the Amazon Resource Name (ARN) of the IAM role that controls your users' access to your Amazon S3 bucket or Amazon EFS file system. The policies attached to this role determine the level of access that you want to provide your users when transferring files into and out of your Amazon S3 or Amazon EFS file system. The IAM role should also contain a trust relationship that allows the server to access your resources when servicing your users' transfer requests.
+
+For details on establishing a trust relationship, see [To establish a trust relationship](https://docs.aws.amazon.com/transfer/latest/userguide/requirements-roles.html#establish-trust-transfer).
+
+Type: String
+
+Constraints: Must be a valid ARN.
+
+Required: Yes, except if the Role will be returned as an attribute by the identity provider module (e.g. the LDAP module is configured to retrieve role from an LDAP attribute)
+
+**config/Policy**
+
+A session policy for your user so that you can use the same IAM role across multiple users. This policy scopes down user access to portions of their Amazon S3 bucket. 
+
+Type: String
+
+Constraints: A valid IAM policy, in JSON format.
+
+Required: No
+
+**ipv4_allow_list**
+
+A list of IPv4 CIDR-notation addresses that the user will be able to connect from. For example, `10.0.0.0/8` to represent a range or `192.168.100.100/32` for an individual IP. Multiple CIDRs can be specified in the string set.
+
+The format is:
+
+```json
+    "ipv4_allow_list": {
+      "SS": [
+        "[CIDR]",
+        "[CIDR]"
+      ]
+    }
+```
+
+Type: StringSet
+
+Constraints: Must be a non-empty StringSet of valid CIDR-notation IPv4 addresses
+
+Required: No
+
 ## Identity provider modules
 This section describes how the identity provider modules work and describes the module-specific parameters that are used in each module's configuration. 
 
@@ -551,7 +780,6 @@ In the `users` table, each user has a corresponding `provider` property that ind
 3. The `handle_auth` function is called, passing the configurations stored in both the user and identity provider records to the module for it to use.
 
 Any module-specific settings are stored in the `config` value of the record within the `identity_providers` table. This is a DynamoDB `Map` value that can contain multiple nested values. 
-
 
 ### Identity provider module reference
 
@@ -622,7 +850,7 @@ The following is an example of a `user` record that uses the `argon2` identity p
 ```json
 {
     "user": {
-        "S": "johnsmith"
+        "S": "jsmith"
     },
     "identity_provider_key": {
         "S": "local_password"
@@ -639,7 +867,7 @@ The following is an example of a `user` record that uses the `argon2` identity p
                                 "S": "/home"
                             },
                             "Target": {
-                                "S": "organization-bucket/users/johnsmith"
+                                "S": "organization-bucket/users/jsmith"
                             }
                         }
                     },
@@ -1267,6 +1495,75 @@ The following example configures the public key provider with a provider name `p
   }
 }
 ```
+
+The following is an example of a user record that is configured to use the public key module. Note that the public keys are stored in the `config/PublicKeys` field.
+
+```json
+  {
+    "user": {
+      "S": "jsmith"
+    },
+    "identity_provider_key": {
+      "S": "publickeys"
+    },  
+    "config": {
+      "M": {
+        "HomeDirectoryDetails": {
+          "L": [
+            {
+              "M": {
+                "Entry": {
+                  "S": "/s3files"
+                },
+                "Target": {
+                  "S": "/[bucketname]/prefix/to/files"
+                }
+              }
+            },
+            {
+              "M": {
+                "Entry": {
+                  "S": "/efs"
+                },
+                "Target": {
+                  "S": "/fs-[efs-fs-id]"
+                }
+              }
+            }
+          ]
+        },
+        "HomeDirectoryType": {
+          "S": "LOGICAL"
+        },
+        "PosixProfile": {
+          "M": {
+            "Gid": {
+              "S": "1000"
+            },
+            "Uid": {
+              "S": "1000"
+            }
+          }
+        },
+        "PublicKeys": {
+          "SS": [
+            "ssh-ed25519 [PUBLICKEY]",
+            "ssh-rsa [PUBLICKEY]"
+          ]
+        },
+        "Role": {
+          "S": "arn:aws:iam::[AWS Account Id]:role/[Role Name]"
+        }
+      }
+    },
+    "ipv4_allow_list": {
+      "SS": [
+        "0.0.0.0/0"
+      ]
+    }
+  }
+```
+
 #### Secrets Manager
 
 ***We're working on creating documentation for this module. Please create an issue if you have any questions.***
@@ -1280,6 +1577,7 @@ When an AWS Transfer Family custom identity provider authenticates a user, it re
 2. Values in `config` field of the user record `users` table
 3. values in the `config` of the identity provider record in the `identity_providers` table
 
+### Example
 **Example Scenario:** An organization wishes to setup an LDAP identity provider. They want the AWS Transfer server to use `UidNumber` and `GidNumber` attributes from the LDAP server, have all users for that identity provider share the same `Role`, and specify all other settings on a per-user basis. This is what the corresponding `user` and `identity_provider` records might look like:
 
 **identity_provider record**
@@ -1332,12 +1630,12 @@ When an AWS Transfer Family custom identity provider authenticates a user, it re
 }
 ```
 
-### user record
+**user record**
 
 ```json
 {
     "user": {
-        "S": "johnsmith"
+        "S": "jsmith"
     },
     "identity_provider_key": {
         "S": "example.com"
@@ -1351,7 +1649,7 @@ When an AWS Transfer Family custom identity provider authenticates a user, it re
                                 "S": "/home"
                             },
                             "Target": {
-                                "S": "organization-bucket/users/johnsmith"
+                                "S": "organization-bucket/users/jsmith"
                             }
                         }
                     },
@@ -1374,8 +1672,7 @@ When an AWS Transfer Family custom identity provider authenticates a user, it re
     },
     "ipv4_allow_list": {
         "SS": [
-            "172.31.0.0/16",
-            "192.168.10.0/24"
+            "0.0.0.0/0"
         ]
     }
 }
