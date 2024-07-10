@@ -271,7 +271,7 @@ To get started, you must define one or more identity providers in the DynamoDB t
 > [!NOTE]  
 > The `public_key` module is supported with AWS Transfer Servers that are configured with SFTP protocol only. If your server us using a different protocol, you should configure a different provider.
 
-1. In the AWS Console, navigate to the DynamoDB console, select **Tables > Explore** items on the sidebar. Select the `[StackName]_identity_providers` table, then click **Create Item**.
+1. In the AWS Console, navigate to the [DynamoDB Item Explorer](https://console.aws.amazon.com/dynamodbv2/home#item-explorer). Select the `[StackName]_identity_providers` table, then click **Create Item**.
 
   ![DynamoDB identity providers table](screenshots/ss-identityprovidersetup-01-dynamodb-table.png)
 
