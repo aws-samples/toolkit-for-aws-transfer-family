@@ -9,7 +9,7 @@ from idp_modules import util
 patch_all()
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG if os.environ.get("LOGLEVEL", "DEBUG") else logging.INFO)
+logger.setLevel(util.get_log_level())
 
 
 class LdapIdpModuleError(util.IdpModuleError):
@@ -71,7 +71,10 @@ def handle_auth(
     if authn_method == util.AuthenticationMethod.PASSWORD:
         if "domain" in identity_provider_config:
             ldap_domain = identity_provider_config["domain"]
-            domain_username = f"{ldap_domain}\{parsed_username}"
+            if "." in ldap_domain:
+                domain_username = f"{parsed_username}@{ldap_domain}"
+            else:
+                domain_username = f"{ldap_domain}\{parsed_username}"
         else:
             domain_username = parsed_username
 

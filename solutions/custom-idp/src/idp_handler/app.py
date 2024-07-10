@@ -14,7 +14,7 @@ from idp_modules import util
 
 patch_all()
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG if os.environ.get("LOGLEVEL", "DEBUG") else logging.INFO)
+logger.setLevel(util.get_log_level())
 
 # dynamodb init
 USERS_TABLE_ID = os.environ["USERS_TABLE"]
@@ -239,7 +239,7 @@ def lambda_handler(event, context):
     )
 
     if event.get("password", "").strip() == "":
-        logger.info(f"No password provided, performing public key auth.")
+        logger.info(f"No password provided, performing public key auth.")   
         authn_method = util.AuthenticationMethod.PUBLIC_KEY
     else:
         logger.info(f"Password provided, performing password auth.")
