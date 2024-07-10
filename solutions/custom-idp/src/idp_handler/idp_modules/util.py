@@ -11,8 +11,12 @@ from enum import Enum
 
 patch_all()
 
+@xray_recorder.capture()
+def get_log_level():
+    return logging.DEBUG if os.environ.get("LOGLEVEL", "INFO").upper() == "DEBUG" else logging.INFO
+
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG if os.environ.get("LOGLEVEL", "DEBUG") else logging.INFO)
+logger.setLevel(get_log_level())
 
 boto3_config = Config(retries={"max_attempts": 10, "mode": "standard"})
 
@@ -26,6 +30,7 @@ class IdpModuleError(Exception):
 class AuthenticationMethod(Enum):
     PASSWORD = 1
     PUBLIC_KEY = 2
+
 
 
 @xray_recorder.capture()

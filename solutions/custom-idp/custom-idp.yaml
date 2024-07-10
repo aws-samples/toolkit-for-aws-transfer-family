@@ -112,7 +112,7 @@ Conditions:
 
 Globals:
   Function:
-    Timeout: 15
+    Timeout: 30
     MemorySize: 1024
     Tracing:
       Fn::If:

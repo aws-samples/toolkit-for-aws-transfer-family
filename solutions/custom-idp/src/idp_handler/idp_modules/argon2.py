@@ -8,7 +8,7 @@ import argon2
 patch_all()
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG if os.environ.get("LOGLEVEL", "DEBUG") else logging.INFO)
+logger.setLevel(util.get_log_level())
 
 
 class Argon2IdpModuleError(util.IdpModuleError):
