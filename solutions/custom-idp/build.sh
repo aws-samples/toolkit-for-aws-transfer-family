@@ -1,6 +1,6 @@
 #!/bin/sh
 set -xe
-
+sudo yum install python3.11 python3.11-pip -y
 ARTIFACTS_DIR="${0%/*}/src/handler_layer"
 python3.11 -m pip install pipenv
 pipenv lock 
