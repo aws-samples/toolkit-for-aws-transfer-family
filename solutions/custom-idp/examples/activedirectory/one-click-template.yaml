@@ -4,7 +4,7 @@ Parameters:
   DirectoryDNSName:
     Description: Microsoft ActiveDirectory DNS Name
     Type: String
-    Default: corp.demoftp.com
+    Default: corp.demosftp.com
   DirectoryAdminPassword:
     Description: Microsoft ActiveDirectory Administrator Password
     Type: String
@@ -16,7 +16,7 @@ Parameters:
     Type: String
     MinLength: 5
     MaxLength: 20
-    Default: 'johnsmith'
+    Default: 'jsmith'
   DirectoryNewUserPassword:
     Description: New AD User Password
     Type: String
@@ -27,17 +27,17 @@ Parameters:
   DirectoryBIOSName:
     Description: Microsoft ActiveDirectory BIOS Name
     Type: String
-    Default: corp
+    Default: CORP
     MinLength: 3
     MaxLength: 20
   DirectorySearchBase:
     Description: Active Directory Search Base e.g. OU=Users,OU=corp,DC=corp,DC=demoftp,DC=com
     Type: String
-    Default: "OU=Users,OU=corp,DC=corp,DC=demoftp,DC=com"
+    Default: "OU=Users,OU=corp,DC=corp,DC=demosftp,DC=com"
   SecretsManagerPermissions:
     Description: Grant Lambda execution role permission to read Secrets Manager secrets (required to use the secrets_manager module)
     Type: String
-    Default: 'false'
+    Default: 'true'
     AllowedValues:
       - 'true'
       - 'false'
