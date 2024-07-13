@@ -1,6 +1,6 @@
-<mxfile host="Electron" modified="2024-03-20T22:47:12.095Z" agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) draw.io/21.4.0 Chrome/112.0.5615.204 Electron/24.5.1 Safari/537.36" etag="kvQ5BGmBXRbhVoDvPX0v" version="21.4.0" type="device" pages="3">
+<mxfile host="Electron" modified="2024-07-13T03:25:25.861Z" agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) draw.io/24.5.1 Chrome/124.0.6367.207 Electron/30.0.6 Safari/537.36" etag="jrkmTAVOaEJMWPEi-X4a" version="24.5.1" type="device" pages="3">
   <diagram id="83PpXdflrvBBaNJUL6ji" name="high-level-architecture">
-    <mxGraphModel dx="995" dy="687" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">
+    <mxGraphModel dx="1114" dy="824" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" />
@@ -22,7 +22,7 @@
         <mxCell id="-8PNFl1u2a8N4YdT_IEa-7" value="Identity Provider&lt;br&gt;(e.g. Microsoft AD, Okta)" style="aspect=fixed;perimeter=ellipsePerimeter;html=1;align=center;shadow=0;dashed=0;fontColor=#4277BB;labelBackgroundColor=#ffffff;fontSize=12;spacingTop=3;image;image=img/lib/ibm/security/identity_provider.svg;container=0;" parent="1" vertex="1">
           <mxGeometry x="530" y="314" width="60" height="60" as="geometry" />
         </mxCell>
-        <mxCell id="-8PNFl1u2a8N4YdT_IEa-18" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" parent="1" source="-8PNFl1u2a8N4YdT_IEa-9" edge="1" target="-8PNFl1u2a8N4YdT_IEa-7">
+        <mxCell id="-8PNFl1u2a8N4YdT_IEa-18" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" parent="1" source="-8PNFl1u2a8N4YdT_IEa-9" target="-8PNFl1u2a8N4YdT_IEa-7" edge="1">
           <mxGeometry relative="1" as="geometry">
             <mxPoint x="720" y="344" as="targetPoint" />
           </mxGeometry>
@@ -50,7 +50,7 @@
         <mxCell id="-8PNFl1u2a8N4YdT_IEa-13" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" parent="1" source="-8PNFl1u2a8N4YdT_IEa-10" target="-8PNFl1u2a8N4YdT_IEa-8" edge="1">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="-8PNFl1u2a8N4YdT_IEa-10" value="AWS Transfer" style="sketch=0;outlineConnect=0;fontColor=#232F3E;gradientColor=none;fillColor=#067F68;strokeColor=none;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=12;fontStyle=0;aspect=fixed;shape=mxgraph.aws4.transfer_for_sftp_resource;container=0;" parent="1" vertex="1">
+        <mxCell id="-8PNFl1u2a8N4YdT_IEa-10" value="AWS Transfer Family" style="sketch=0;outlineConnect=0;fontColor=#232F3E;gradientColor=none;fillColor=#067F68;strokeColor=none;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=12;fontStyle=0;aspect=fixed;shape=mxgraph.aws4.transfer_for_sftp_resource;container=0;" parent="1" vertex="1">
           <mxGeometry x="170" y="315" width="56.51" height="58" as="geometry" />
         </mxCell>
         <mxCell id="-8PNFl1u2a8N4YdT_IEa-12" value="users" style="sketch=0;points=[[0,0,0],[0.25,0,0],[0.5,0,0],[0.75,0,0],[1,0,0],[0,1,0],[0.25,1,0],[0.5,1,0],[0.75,1,0],[1,1,0],[0,0.25,0],[0,0.5,0],[0,0.75,0],[1,0.25,0],[1,0.5,0],[1,0.75,0]];outlineConnect=0;fontColor=#232F3E;gradientColor=#4D72F3;gradientDirection=north;fillColor=#3334B9;strokeColor=#ffffff;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=12;fontStyle=0;aspect=fixed;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.dynamodb;container=0;" parent="1" vertex="1">
@@ -59,7 +59,7 @@
         <mxCell id="-8PNFl1u2a8N4YdT_IEa-21" value="identity-providers" style="sketch=0;points=[[0,0,0],[0.25,0,0],[0.5,0,0],[0.75,0,0],[1,0,0],[0,1,0],[0.25,1,0],[0.5,1,0],[0.75,1,0],[1,1,0],[0,0.25,0],[0,0.5,0],[0,0.75,0],[1,0.25,0],[1,0.5,0],[1,0.75,0]];outlineConnect=0;fontColor=#232F3E;gradientColor=#4D72F3;gradientDirection=north;fillColor=#3334B9;strokeColor=#ffffff;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=12;fontStyle=0;aspect=fixed;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.dynamodb;container=0;" parent="1" vertex="1">
           <mxGeometry x="150" y="200" width="45" height="45" as="geometry" />
         </mxCell>
-        <mxCell id="x-z0VkHojNiXZHVe16VJ-1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="-8PNFl1u2a8N4YdT_IEa-8" target="-8PNFl1u2a8N4YdT_IEa-21">
+        <mxCell id="x-z0VkHojNiXZHVe16VJ-1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" parent="1" source="-8PNFl1u2a8N4YdT_IEa-8" target="-8PNFl1u2a8N4YdT_IEa-21" edge="1">
           <mxGeometry relative="1" as="geometry">
             <Array as="points">
               <mxPoint x="314" y="300" />
