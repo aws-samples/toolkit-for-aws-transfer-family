@@ -96,7 +96,11 @@ def handle_auth(
             )
             if "domain" in identity_provider_config:
                 ldap_domain = identity_provider_config["domain"]
-                domain_username = f"{ldap_domain}\{service_account['username']}"
+                if "." in ldap_domain:
+                    domain_username = f"{service_account['username']}@{ldap_domain}"
+                else:
+                    domain_username = f"{ldap_domain}\{service_account['username']}"
+
             else:
                 domain_username = service_account["username"]
 
