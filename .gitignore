@@ -111,3 +111,6 @@ ENV/
 .vscode/
 .idea/
 **/samconfig.toml
+
+# Drawio
+.*.bkp

@@ -856,10 +856,10 @@ The following is an example of a `user` record that uses the `argon2` identity p
         "S": "local_password"
     },
     "config": {
-      "argon2_hash": {
-        "S": "$argon2i$v=19$m=4096,t=3,p=$argon2i$v=19$m=4096,t=3,p=1$Q1JYWUZvSExndGwxVFBKVDdnUUlUMXpCVlpjTUJibbbbbbbb+2/GwZZmGUN3UiclEIXWX3bbbbbbbbb"
-      },
         "M": {
+          "argon2_hash": {
+            "S": "$argon2i$v=19$m=4096,t=3,p=$argon2i$v=19$m=4096,t=3,p=1$Q1JYWUZvSExndGwxVFBKVDdnUUlUMXpCVlpjTUJibbbbbbbb+2/GwZZmGUN3UiclEIXWX3bbbbbbbbb"
+          },        
             "HomeDirectoryDetails": {
                 "L": [{
                         "M": {

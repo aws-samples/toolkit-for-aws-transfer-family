@@ -216,7 +216,7 @@ Resources:
   ApiCloudWatchLogsRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub ${AWS::StackName}-api-role
+      RoleName: !Sub ${AWS::StackName}-api-cloudwatch-role
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
