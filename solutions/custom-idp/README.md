@@ -306,7 +306,7 @@ To get started, you must define one or more identity providers in the DynamoDB t
 
 ### Define users
 
-Once identity providers are defined, user records must be created. Each user records may contain the settings that will be used for an AWS Transfer session and can also contain public keys when using the `public_key` module or for AWS Transfer servers configured with Public Key AND Password support. Each record also maps the username to a given identity provider. In this section, we will create a user record and map it to the `publickeys` identity provider created in the previous section.
+Once identity providers are defined, user records must be created. Each user records may contain the settings that will be used for an AWS Transfer session and can also contain public keys when using the `public_key` module or for AWS Transfer servers configured with **Password AND Key support**. Each record also maps the username to a given identity provider. In this section, we will create a user record and map it to the `publickeys` identity provider created in the previous section.
 
 > [!IMPORTANT]  
 > All usernames specified in the `[StackName]_users` must be entered as lowercase.
@@ -1892,6 +1892,11 @@ Follow these same steps to return the **LogLevel** setting to `INFO` after finis
 
 * **Does the AWS Transfer server need to be deployed in the same VPC as the Custom IdP solution?**
   No, it can be deployed independently of the VPC the Custom IdP solution uses. 
+
+* **Can I use Password AND Key (multi method) authentication with the Custom IdP solution?** 
+  Yes. With Password AND Key authentication configured on an AWS Transfer Family server, the public keys listed in the `PublicKeys` attribute of the user record will be used automatically during the key authentication request, then the identity provider module associated will handle the password request. For an example of how to populate the `PublicKeys` attribute, see the [Public Key](#public-key) identity provider module reference.
+  
+  Note: Some identity provider modules may be able to support both password and key based authentication, in which case the `public_key_support` attribute will be set to `true` in the `identity_providers` record. In this case, the module may not use the `PublicKeys` attribute and retrieve user public keys from another source. 
 
 
 ## Common issues
