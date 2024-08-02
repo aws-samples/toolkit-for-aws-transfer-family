@@ -306,7 +306,7 @@ To get started, you must define one or more identity providers in the DynamoDB t
 
 ### Define users
 
-Once identity providers are defined, user records must be created. Each user records may contain the settings that will be used for an AWS Transfer session and can also contain public keys when using the `public_key` module or for AWS Transfer servers configured with Public Key AND Password support. Each record also maps the username to a given identity provider. In this section, we will create a user record and map it to the `publickeys` identity provider created in the previous section.
+Once identity providers are defined, user records must be created. Each user records may contain the settings that will be used for an AWS Transfer session and can also contain public keys when using the `public_key` module or for AWS Transfer servers configured with **Password AND Key support**. Each record also maps the username to a given identity provider. In this section, we will create a user record and map it to the `publickeys` identity provider created in the previous section.
 
 > [!IMPORTANT]  
 > All usernames specified in the `[StackName]_users` must be entered as lowercase.
@@ -721,9 +721,44 @@ The format is:
         },
 ```
 
-Type: StringSet
+Optionally, a list of SSH public keys and expiration timestamps can be stored to support scenarios where public keys must expire after a given time. In this case, the format is:
 
-Constraints: Must be a non-empty StringSet of valid public keys.
+```json
+      "PublicKeys": {
+        "L": [
+          {
+            "M": {
+              "Expires": {
+                "S": "[ISO 8601 datetime]"
+              },
+              "PublicKey": {
+                "S": "ssh-ed25519 [PUBLICKEY]"
+              }
+            }
+          },
+          {
+            "M": {
+              "Expires": {
+                "S": "[ISO 8601 datetime]"
+              },
+              "PublicKey": {
+                "S": "ssh-rsa [PUBLICKEY]"
+              }
+            }
+          }
+        ]
+      },
+```
+
+The `Expires` field must contain a valid ISO 8601 timestamp. It is recommended this be stored as the UTC timezone. In Python, this can be calculated with the the following code:
+```python
+from datetime import datetime, timezone
+datetime.now(timezone.utc).isoformat()
+``` 
+
+Type: StringSet **OR** List[String] **OR** List[Map]
+
+Constraints: Must be a non-empty StringSet, List of Strings, or List of Map containing valid public keys.
 
 Required: No
 
@@ -1564,6 +1599,92 @@ The following is an example of a user record that is configured to use the publi
   }
 ```
 
+The following is an example of a user record that contains public keys that are set to expire after a given timestamp. Note that the List of Map values in the `config/PublicKeys` field.
+
+```json
+  {
+    "user": {
+      "S": "jsmith"
+    },
+    "identity_provider_key": {
+      "S": "publickeys"
+    },  
+    "config": {
+      "M": {
+        "HomeDirectoryDetails": {
+          "L": [
+            {
+              "M": {
+                "Entry": {
+                  "S": "/s3files"
+                },
+                "Target": {
+                  "S": "/[bucketname]/prefix/to/files"
+                }
+              }
+            },
+            {
+              "M": {
+                "Entry": {
+                  "S": "/efs"
+                },
+                "Target": {
+                  "S": "/fs-[efs-fs-id]"
+                }
+              }
+            }
+          ]
+        },
+        "HomeDirectoryType": {
+          "S": "LOGICAL"
+        },
+        "PosixProfile": {
+          "M": {
+            "Gid": {
+              "S": "1000"
+            },
+            "Uid": {
+              "S": "1000"
+            }
+          }
+        },
+        "PublicKeys": {
+          "L": [
+            {
+              "M": {
+                "Expires": {
+                  "S": "[ISO 8601 datetime]"
+                },
+                "PublicKey": {
+                  "S": "ssh-ed25519 [PUBLICKEY]"
+                }
+              }
+            },
+            {
+              "M": {
+                "Expires": {
+                  "S": "[ISO 8601 datetime]"
+                },
+                "PublicKey": {
+                  "S": "ssh-rsa [PUBLICKEY]"
+                }
+              }
+            }
+          ]
+        },
+        "Role": {
+          "S": "arn:aws:iam::[AWS Account Id]:role/[Role Name]"
+        }
+      }
+    },
+    "ipv4_allow_list": {
+      "SS": [
+        "0.0.0.0/0"
+      ]
+    }
+  }
+```
+
 #### Secrets Manager
 
 ***We're working on creating documentation for this module. Please create an issue if you have any questions.***
@@ -1771,6 +1892,11 @@ Follow these same steps to return the **LogLevel** setting to `INFO` after finis
 
 * **Does the AWS Transfer server need to be deployed in the same VPC as the Custom IdP solution?**
   No, it can be deployed independently of the VPC the Custom IdP solution uses. 
+
+* **Can I use Password AND Key (multi method) authentication with the Custom IdP solution?** 
+  Yes. With Password AND Key authentication configured on an AWS Transfer Family server, the public keys listed in the `PublicKeys` attribute of the user record will be used automatically during the key authentication request, then the identity provider module associated will handle the password request. For an example of how to populate the `PublicKeys` attribute, see the [Public Key](#public-key) identity provider module reference.
+  
+  Note: Some identity provider modules may be able to support both password and key based authentication, in which case the `public_key_support` attribute will be set to `true` in the `identity_providers` record. In this case, the module may not use the `PublicKeys` attribute and retrieve user public keys from another source. 
 
 
 ## Common issues

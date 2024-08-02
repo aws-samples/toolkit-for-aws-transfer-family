@@ -3,6 +3,7 @@ import os
 
 from aws_xray_sdk.core import patch_all, xray_recorder
 from idp_modules import util
+from datetime import datetime, timezone
 
 patch_all()
 
@@ -41,10 +42,31 @@ def handle_auth(
             )
         else:
             logger.info(f'PublicKeys found in config for user {user_record["user"]}')
+            logger.debug(f'PublicKeys: {user_record_config["PublicKeys"]}')
+            logger.debug(f'Type: {type(user_record_config["PublicKeys"])}')
             response_data.setdefault(
                 "PublicKeys", []
-            )  # Sometimes a list isn't returned by boto3 dynamodb get_item when there is only one item in a string set, so we iterate.
-            for key in user_record_config["PublicKeys"]:
-                response_data["PublicKeys"].append(key)
+            ) 
+            if type(user_record_config["PublicKeys"]) == str:
+                logger.debug(f'Adding {user_record_config["PublicKeys"]} to PublicKeys List.')
+                response_data["PublicKeys"] = [user_record_config["PublicKeys"]] 
+            elif type(user_record_config["PublicKeys"]) == set:
+                logger.debug(f'Converting set of public keys to list.')
+                response_data["PublicKeys"] = list(user_record_config["PublicKeys"])
+            elif type(user_record_config["PublicKeys"]) == list:
+                for item in user_record_config["PublicKeys"]:
+                    if type(item) == dict:
+                        if "PublicKey" in item:
+                            if not "Expires" in item or datetime.fromisoformat(item["Expires"]) > datetime.now(timezone.utc):
+                                    logger.debug(f'Public key {item["PublicKey"]} has not expired for user {user_record["user"]}.')
+                                    response_data["PublicKeys"].append(item["PublicKey"])
+                            else:
+                                logger.warn(f'Public key {item["PublicKey"]} has expired for user {user_record["user"]}.')
+                        
+                    elif type(item) == str:
+                        logger.debug(f'Adding public key {item} to list.')
+                        response_data["PublicKeys"].append(item)
+                    else:
+                        logger.warn(f'Invalid public key type {type(item)} in "PublicKeys" value for user {user_record["user"]}.')
 
     return response_data
