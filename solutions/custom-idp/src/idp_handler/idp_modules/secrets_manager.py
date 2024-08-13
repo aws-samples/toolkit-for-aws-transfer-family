@@ -1,12 +1,11 @@
 import ast
 import json
 import logging
-import os
-
-from aws_xray_sdk.core import patch_all, xray_recorder
 from idp_modules import util
+from aws_lambda_powertools import Tracer
+from aws_lambda_powertools.utilities.typing import LambdaContext
 
-patch_all()
+tracer = Tracer()
 
 
 class SecretsManagerIdpModuleError(util.IdpModuleError):
@@ -19,7 +18,7 @@ logger = logging.getLogger(__name__)
 logger.setLevel(util.get_log_level())
 
 
-@xray_recorder.capture()
+@tracer.capture_method
 def handle_auth(
     event,
     parsed_username,

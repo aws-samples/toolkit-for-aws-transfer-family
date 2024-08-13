@@ -3,10 +3,10 @@ import os
 import ssl
 import json
 import ldap3
-from aws_xray_sdk.core import patch_all, xray_recorder
 from idp_modules import util
+from aws_lambda_powertools import Tracer
 
-patch_all()
+tracer = Tracer()
 
 logger = logging.getLogger(__name__)
 logger.setLevel(util.get_log_level())
@@ -17,9 +17,40 @@ class LdapIdpModuleError(util.IdpModuleError):
 
     pass
 secret_cache = {}
+server_pool_cache = {}
+
+@tracer.capture_method
+def build_server_pool(provider_name, servers, port, use_ssl, tls):
+    server_pool = util.fetch_cache(server_pool_cache, provider_name, 300)
+    if server_pool is None: 
+        logger.debug(f"Building server pool for {provider_name}")
+        tracer.put_annotation(key="ldap_created_server_pool", value=True)
+        server_list = []
+        if type(servers) == str:
+                server_list.append(servers) 
+        elif type(servers) == set:
+            server_list = list(servers)
+        elif type(servers) == list:
+            server_list = servers
+        logger.debug(f"server_list: {server_list}")        
+        server_pool = ldap3.ServerPool(pool_strategy=ldap3.ROUND_ROBIN, active=True, exhaust=True)
+        for server in server_list:
+            server_pool.add(
+                ldap3.Server(host=server, port=port, use_ssl=use_ssl, tls=tls, connect_timeout=5)
+            )
+        util.set_cache(server_pool_cache, provider_name, server_pool)
+    else:
+        logger.debug(f"Using cached server pool for {provider_name}")
+        tracer.put_annotation(key="ldap_created_server_pool", value=False)
+    logger.debug(server_pool.servers)
+    logger.debug(server_pool.active)
+    
+    
+    
+    return server_pool
 
 
-@xray_recorder.capture()
+@tracer.capture_method
 def handle_auth(
     event,
     parsed_username,
@@ -31,7 +62,7 @@ def handle_auth(
     logger.debug(f"User record: {user_record}")
 
     identity_provider_config = identity_provider_record["config"]
-    ldap_host = identity_provider_config["server"]
+    ldap_server = identity_provider_config["server"]
     ldap_port = int(identity_provider_config.get("port", 636))
     ldap_ssl = identity_provider_config.get("ssl", True)
     ldap_ssl_verify = identity_provider_config.get("ssl_verify", True)
@@ -64,9 +95,8 @@ def handle_auth(
             ldap_ssl_ca if not ldap_ssl_ca is None and ldap_ssl_verify else None
         ),
     )
-    ldap_server = ldap3.Server(
-        host=ldap_host, port=ldap_port, use_ssl=ldap_ssl, tls=ldap_tls
-    )
+    
+    server_pool = build_server_pool(identity_provider_record["provider"], ldap_server, ldap_port, ldap_ssl, ldap_tls)
 
     if authn_method == util.AuthenticationMethod.PASSWORD:
         if "domain" in identity_provider_config:
@@ -79,10 +109,9 @@ def handle_auth(
             domain_username = parsed_username
 
         ldap_connection = ldap3.Connection(
-            server=ldap_server,
+            server=server_pool,
             user=domain_username,
-            password=event["password"],
-            auto_bind=True,
+            password=event["password"]
         )
     elif authn_method == util.AuthenticationMethod.PUBLIC_KEY:
         from . import public_key
@@ -105,10 +134,9 @@ def handle_auth(
                 domain_username = service_account["username"]
 
             ldap_connection = ldap3.Connection(
-                server=ldap_server,
+                server=server_pool,
                 user=domain_username,
-                password=service_account["password"],
-                auto_bind=True,
+                password=service_account["password"]
             )
 
         else:
@@ -131,15 +159,16 @@ def handle_auth(
 
     logger.info(f"LDAP domain username: {domain_username}")
     logger.debug(f"ldap_connection: {ldap_connection}")
-
+    logger.debug(f"Current Server: {server_pool.get_current_server(ldap_connection)}")
     logger.info("Attempting LDAP bind")
 
     bound = ldap_connection.bind()
-
+    
     logger.info(f"LDAP bound: {bound}")
+
     if not bound:
         raise LdapIdpModuleError(
-            f"Unable to perform LDAP bind with credentials provided. Failing auth. Last error: {ldap_connection.last_error}"
+            f"Unable to perform LDAP bind with credentials provided. Failing auth. Result: {ldap_connection.result}; Last error: {ldap_connection.last_error}"
         )
 
     logger.info(f"whoami: {ldap_connection.extend.standard.who_am_i()}")
@@ -252,7 +281,7 @@ def handle_auth(
             raise LdapIdpModuleError(
                 f"LDAP attribute {ldap_attributes['Uid']} for 'Uid' and/or {ldap_attributes['Gid']}  for 'Gid' were empty or missing. Enable debug logging adn check LDAP response. To ignore, use the ignore_missing_attributes setting in the identity provider config."
             )
-
+    ldap_connection.unbind()
     if authn_method == util.AuthenticationMethod.PUBLIC_KEY:
         response_data = public_key.handle_auth(
             event=event,

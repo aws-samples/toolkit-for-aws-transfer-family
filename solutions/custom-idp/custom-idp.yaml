@@ -112,13 +112,16 @@ Conditions:
 
 Globals:
   Function:
-    Timeout: 30
+    Timeout: 45
     MemorySize: 1024
     Tracing:
       Fn::If:
       - TracingEnabled
       - Active
       - Ref: AWS::NoValue
+    Environment:
+      Variables:
+        POWERTOOLS_SERVICE_NAME: !Sub ${AWS::StackName}
   Api:
     TracingEnabled: true
 
@@ -216,7 +219,7 @@ Resources:
   ApiCloudWatchLogsRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub ${AWS::StackName}-api-cloudwatch-role
+      RoleName: !Sub ${AWS::StackName}-${AWS::Region}-api-cloudwatch-role
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
@@ -371,7 +374,7 @@ Resources:
     Type: AWS::IAM::Role
     Condition: ApiEnabled
     Properties:
-      RoleName: !Sub "${AWS::StackName}_transfer-api-role"
+      RoleName: !Sub "${AWS::StackName}-${AWS::Region}-transfer-api-role"
       AssumeRolePolicyDocument:    
         Version: '2012-10-17'
         Statement:

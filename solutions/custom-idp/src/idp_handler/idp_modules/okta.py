@@ -4,10 +4,13 @@ import json
 import urllib
 import re
 import urllib3
-from aws_xray_sdk.core import patch_all, xray_recorder
 from idp_modules import util
+from aws_lambda_powertools import Tracer
+from aws_lambda_powertools.utilities.typing import LambdaContext
 
-patch_all()
+tracer = Tracer()
+
+
 
 logger = logging.getLogger(__name__)
 logger.setLevel(util.get_log_level())
@@ -22,7 +25,7 @@ class OktaIdpModuleError(util.IdpModuleError):
     pass
 
 
-@xray_recorder.capture()
+@tracer.capture_method
 def okta_authenticate(url, username, password, mfa_token=None):
     headers = {"Accept": "application/json", "Content-Type": "application/json"}
 
@@ -126,7 +129,7 @@ def okta_authenticate(url, username, password, mfa_token=None):
     )
 
 
-@xray_recorder.capture()
+@tracer.capture_method
 def okta_token_exchange_oauth(url, session_token, client_id, redirect_uri):
     headers = {"Accept": "application/json", "Content-Type": "application/json"}
     logger.info(f"Authorization URL: {url}")
@@ -181,7 +184,7 @@ def okta_token_exchange_oauth(url, session_token, client_id, redirect_uri):
     return sid
 
 
-@xray_recorder.capture()
+@tracer.capture_method
 def okta_get_user(url, session_cookie):
     headers = {
         "Accept": "application/json",
@@ -209,7 +212,7 @@ def okta_get_user(url, session_cookie):
 
 
 # Not used, defined for future groups support
-@xray_recorder.capture()
+@tracer.capture_method
 def okta_get_user_groups(url, session_cookie):
     headers = {
         "Accept": "application/json",
@@ -236,7 +239,7 @@ def okta_get_user_groups(url, session_cookie):
     return json.loads(user_groups_response.data)
 
 
-@xray_recorder.capture()
+@tracer.capture_method
 def handle_auth(
     event,
     parsed_username,

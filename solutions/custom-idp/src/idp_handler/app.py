@@ -7,12 +7,15 @@ import json
 import logging
 import os
 
+from aws_lambda_powertools import Tracer
+
+tracer = Tracer()
+
 import boto3
-from aws_xray_sdk.core import patch_all, xray_recorder
 from boto3.dynamodb.conditions import Key
 from idp_modules import util
 
-patch_all()
+
 logger = logging.getLogger(__name__)
 logger.setLevel(util.get_log_level())
 
@@ -31,7 +34,7 @@ class IdpHandlerException(Exception):
     pass
 
 
-@xray_recorder.capture()
+@tracer.capture_method
 def ip_in_cidr_list(ip_address, cidr_list):
     for cidr in cidr_list:
         logger.debug("Checking Allowed IP CIDR: {}".format(cidr))
@@ -47,7 +50,7 @@ def ip_in_cidr_list(ip_address, cidr_list):
     return False
 
 
-@xray_recorder.capture()
+@tracer.capture_lambda_handler
 def lambda_handler(event, context):
     response_data = {}
 
@@ -58,6 +61,8 @@ def lambda_handler(event, context):
 
     input_username = event["username"].lower()
     logger.info(f"Username: {input_username}, ServerId: {event['serverId']}")
+    tracer.put_annotation(key="transfer_user", value=input_username)
+
 
     # Parse the username to get user and identity provider (if specified)
     parsed_username = input_username.split(USER_NAME_DELIMITER)
@@ -78,8 +83,9 @@ def lambda_handler(event, context):
     logger.info(
         f"Parsed username and IdP: Username: {username} IDP: {identity_provider}"
     )
-    if username == "$":
+    if username == "$" or username == "$default$":
         raise IdpHandlerException(f"Username $default$ is reserved and cannot be used.")
+    
     # Lookup user
     if identity_provider:
         user_record = USERS_TABLE.get_item(
@@ -130,7 +136,7 @@ def lambda_handler(event, context):
         Key={"provider": identity_provider}
     ).get("Item", None)
     logger.debug(f"identity_provider_record: {identity_provider_record}")
-
+    tracer.put_annotation(key="identity_provider", value=identity_provider_record["provider"])
     if identity_provider_record is None:
         raise IdpHandlerException(
             f"Identity provider {identity_provider} is not defined in the table {IDENTITY_PROVIDERS_TABLE}."
