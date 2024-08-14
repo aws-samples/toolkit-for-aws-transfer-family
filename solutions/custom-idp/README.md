@@ -561,21 +561,21 @@ The username of the user that will be authenticating to the identity provider.
 > To perform the lookup in the users DynamoDB table without forcing a full scan, the solution converts the username to lowercase and retrieves the record(s) matching that user. Therefore, all usernames must be entered as lowercase.
 > 
 
-**Type:** String
+***Type:*** String
 
-**Constraints:** None
+***Constraints:*** None
 
-**Required:** Yes
+***Required:*** Yes
 
 **identity_provider_key**
 
 A name used for referencing the identity provider in the `identity_providers` table to perform authentication. This value is also used when users specify an identity provider during authentication (e.g. `username@identity_provider_key`).
 
-Type: String
+***Type:*** String
 
-Constraints: None
+***Constraints:*** None
 
-Required: Yes
+***Required:*** Yes
 
 **config/HomeDirectoryDetails**
 
@@ -610,21 +610,21 @@ The format is:
         },
 ```
 
-Type: List[Map]
+***Type:*** List[Map]
 
-Constraints: Must be a list of `Map` values, each with a map key being `Entry` and value name being `Target`. 
+***Constraints:*** Must be a list of `Map` values, each with a map key being `Entry` and value name being `Target`. 
 
-Required: Yes if `HomeDirectoryType` is `LOGICAL`. Otherwise, no.
+***Required:*** Yes if `HomeDirectoryType` is `LOGICAL`. Otherwise, no.
 
 **config/HomeDirectory**
 
 The landing directory (S3 or EFS path) for a user when they log in to the server using the client.
 
-Type: String
+***Type:*** String
 
-Constraints: Must be a list of `Map` values, each with a map key being `Entry` and value name being `Target`. 
+***Constraints:*** Must be a list of `Map` values, each with a map key being `Entry` and value name being `Target`. 
 
-Required: Yes if `HomeDirectoryType` is `PATH` or not set. Otherwise, no.
+***Required:*** Yes if `HomeDirectoryType` is `PATH` or not set. Otherwise, no.
 
 **config/PosixProfile**
 
@@ -644,11 +644,11 @@ The format is:
         },
 ```
 
-Type: List[Map]
+***Type:*** List[Map]
 
-Constraints: Must be a list of `Map` with entries for `Uid` and `Gid`. 
+***Constraints:*** Must be a list of `Map` with entries for `Uid` and `Gid`. 
 
-Required: Yes, if the AWS Transfer Server accesses an EFS filesystem. Otherwise, no.
+***Required:*** Yes, if the AWS Transfer Server accesses an EFS filesystem. Otherwise, no.
 
 
 **config/PublicKeys**
@@ -701,11 +701,11 @@ from datetime import datetime, timezone
 datetime.now(timezone.utc).isoformat()
 ``` 
 
-Type: StringSet **OR** List[String] **OR** List[Map]
+***Type:*** StringSet **OR** List[String] **OR** List[Map]
 
-Constraints: Must be a non-empty StringSet, List of Strings, or List of Map containing valid public keys.
+***Constraints:*** Must be a non-empty StringSet, List of Strings, or List of Map containing valid public keys.
 
-Required: No
+***Required:*** No
 
 **config/Role**
 
@@ -713,21 +713,21 @@ Specifies the Amazon Resource Name (ARN) of the IAM role that controls your user
 
 For details on establishing a trust relationship, see [To establish a trust relationship](https://docs.aws.amazon.com/transfer/latest/userguide/requirements-roles.html#establish-trust-transfer).
 
-Type: String
+***Type:*** String
 
-Constraints: Must be a valid ARN.
+***Constraints:*** Must be a valid ARN.
 
-Required: Yes, except if the Role will be returned as an attribute by the identity provider module (e.g. the LDAP module is configured to retrieve role from an LDAP attribute)
+***Required:*** Yes, except if the Role will be returned as an attribute by the identity provider module (e.g. the LDAP module is configured to retrieve role from an LDAP attribute)
 
 **config/Policy**
 
 A session policy for your user so that you can use the same IAM role across multiple users. This policy scopes down user access to portions of their Amazon S3 bucket. 
 
-Type: String
+***Type:*** String
 
-Constraints: A valid IAM policy, in JSON format.
+***Constraints:*** A valid IAM policy, in JSON format.
 
-Required: No
+***Required:*** No
 
 **ipv4_allow_list**
 
@@ -744,11 +744,11 @@ The format is:
     }
 ```
 
-Type: StringSet
+***Type:*** StringSet
 
-Constraints: Must be a non-empty StringSet of valid CIDR-notation IPv4 addresses
+***Constraints:*** Must be a non-empty StringSet of valid CIDR-notation IPv4 addresses
 
-Required: No
+***Required:*** No
 
 ## Identity provider modules
 This section describes how the identity provider modules work and describes the module-specific parameters that are used in each module's configuration. 
@@ -790,21 +790,21 @@ This module provides a method to define "local" user credentials within the cust
 
 A name used for referencing the provider in the `users` table. This value is also used when users specify an identity provider during authentication (e.g. `username@provider`).
 
-**Type:** String
+***Type:*** String
 
-**Constraints:** None
+***Constraints:*** None
 
-**Required:** Yes
+***Required:*** Yes
 
 **module**
 
 The name of the module that will be loaded to perform authentication. **This should be set to `argon2`.**
 
-Type: String
+***Type:*** String
 
-Constraints: None
+***Constraints:*** None
 
-Required: Yes
+***Required:*** Yes
 
 ##### Example
 
@@ -876,7 +876,7 @@ The following is an example of a `user` record that uses the `argon2` identity p
     }
 }
 ```
-tr -dc 'A-Za-z0-9!"#$%&'\''()*+,-./:;<=>?@[\]^_`{|}~' </dev/urandom | head -c 32; echo
+
 On system with the `argon2` package/binaries installed, a hash can be generated for testing using this command: 
 ```bash
 unset -v password; set +o allexport; echo "Enter password"; IFS= read -rs password < /dev/tty; printf '%s' "$password" | argon2 $(head /dev/urandom | LC_ALL=C tr -dc A-Za-z0-9 | head -c 32; echo) -e; unset -v password;
@@ -949,21 +949,21 @@ The `ldap` module supports authentication with Active Directory and LDAP servers
 
 A name used for referencing the provider in the `users` table. This value is also used when users specify an identity provider during authentication (e.g. `username@provider`).
 
-**Type:** String
+***Type:*** String
 
-**Constraints:** None
+***Constraints:*** None
 
-**Required:** Yes
+***Required:*** Yes
 
 **module**
 
 The name of the LDAP module that will be loaded to perform authentication. **This should be set to `ldap`.**
 
-Type: String
+***Type:*** String
 
-Constraints: None
+***Constraints:*** None
 
-Required: Yes
+***Required:*** Yes
 
 **config/server**
 
@@ -973,11 +973,11 @@ When a StringSet is used, multiple servers can be specified. These addresses wil
 
 Note: When adding or removing servers to this field it may take up to 5 minutes for the Lambda function to begin using this. This is because each Lambda execution environment caches the server pool for 5 minutes. 
 
-Type: String or StringSet
+***Type:*** String or StringSet
 
-Constraints: Must be a valid FQDN or IP address
+***Constraints:*** Must be a valid FQDN or IP address
 
-Required: Yes
+***Required:*** Yes
 
 **config/domain**
 
@@ -985,32 +985,32 @@ The DNS or NETBIOS domain name of the Active Directory domain. For example, `dom
 
 This value must be set when connecting to Active Directory for authentication to succeed.
 
-Type: Number
+***Type:*** Number
 
-Constraints: Must be a valid port number
+***Constraints:*** Must be a valid port number
 
-Required: Yes, if connecting to Active Directory
+***Required:*** Yes, if connecting to Active Directory
 
 
 **config/search_base**
 
 The LDAP search base to when connecting to LDAP and to lookup any users/attributes in. For example, in AD domain `EXAMPLE.COM` it may be `DC=EXAMPLE,DC=COM`. 
 
-Type: String
+***Type:*** String
 
-Constraints: Must be a valid LDAP search base.
+***Constraints:*** Must be a valid LDAP search base.
 
-Required: Yes
+***Required:*** Yes
 
 **config/port**
 
 The port number of the LDAP or Active Directory server to connect to. This is typically `389` for non-SSL and `636` for SSL.
 
-Type: Number
+***Type:*** Number
 
-Constraints: Must be a valid port number
+***Constraints:*** Must be a valid port number
 
-Required: No
+***Required:*** No
 
 Default: `636`
 
@@ -1018,11 +1018,11 @@ Default: `636`
 
 Determines if an SSL connection should be established to the server. SSL is enabled by default.
 
-Type: Boolean
+***Type:*** Boolean
 
-Constraints: Must be `true` or `false`
+***Constraints:*** Must be `true` or `false`
 
-Required: No
+***Required:*** No
 
 Default: `true`
 
@@ -1030,11 +1030,11 @@ Default: `true`
 
 When set to `true` and connecting with SSL, the identity of the server will be validated against the address used in the `config/server` value and that the certificate is valid. This value should be set to `false` if the server name does not match the DNS address used. If using a private CA, you must store the CA certificate in secrets manager and specify the ARN using th `ldap_ssl_ca_secret_arn` parameter described below. 
 
-Type: Boolean
+***Type:*** Boolean
 
-Constraints: Must be `true` or `false`
+***Constraints:*** Must be `true` or `false`
 
-Required: No
+***Required:*** No
 
 Default: `true`
 
@@ -1051,11 +1051,11 @@ CERTIFICATE CONTENTS HERE
 -----END CERTIFICATE-----
 ```
 
-Type: String
+***Type:*** String
 
-Constraints: Must be a valid Secrets Manager ARN.
+***Constraints:*** Must be a valid Secrets Manager ARN.
 
-Required: No
+***Required:*** No
 
 Default: *none*
 
@@ -1076,11 +1076,11 @@ The Secrets Manager secret value should be in the following format:
 }
 ```
 
-Type: String
+***Type:*** String
 
-Constraints: Must be a valid Secrets Manager ARN.
+***Constraints:*** Must be a valid Secrets Manager ARN.
 
-Required: No
+***Required:*** No
 
 Default: *none*
 
@@ -1104,11 +1104,11 @@ For example, if you wish to pass a `Uid` and `Gid` from AD or LDAP to AWS Transf
 > [!NOTE]  
 > Any attributes returned will override corresponding values that have been specified in the user's record from the `users` table. 
 
-Type: Map
+***Type:*** Map
 
-Constraints: Only `Gid`, `Uid`, `Policy`, and `Role` are supported.
+***Constraints:*** Only `Gid`, `Uid`, `Policy`, and `Role` are supported.
 
-Required: No
+***Required:*** No
 
 Default: *none*
 
@@ -1121,11 +1121,11 @@ When set to `false` and the attribute is missing or empty in the user's LDAP obj
 > [!NOTE]  
 > It is recommended this be set to `false`, since missing or empty attributes could indicate the user's LDAP or AD profile has not been correctly configured and an empty attribute such as `Policy` could provide less restrictive access than desired. 
 
-Type: Boolean
+***Type:*** Boolean
 
-Constraints: Must be `true` or `false`
+***Constraints:*** Must be `true` or `false`
 
-Required: No
+***Required:*** No
 
 Default: `false`
 
@@ -1237,51 +1237,51 @@ The `okta` module supports authentication with an Okta instance. It supports TOT
 
 A name used for referencing the provider in the `users` table. This value is also used when users specify an identity provider during authentication (e.g. `username@provider`).
 
-**Type:** String
+***Type:*** String
 
-**Constraints:** None
+***Constraints:*** None
 
-**Required:** Yes
+***Required:*** Yes
 
 **module**
 
 The name of the Okta module that will be loaded to perform authentication. **This should be set to `okta`.**
 
-Type: String
+***Type:*** String
 
-Constraints: None
+***Constraints:*** None
 
-Required: Yes
+***Required:*** Yes
 
 **config/okta_domain**
 
 The DNS address or IP address of the Okta domain to connect to for authentication.
 
-Type: String
+***Type:*** String
 
-Constraints: Must be a FQDN or IP address
+***Constraints:*** Must be a FQDN or IP address
 
-Required: Yes
+***Required:*** Yes
 
 **config/okta_app_client_id**
 
 The Client ID of the Okta application that will be used to obtain a session cookie and retrieve user profile attributes. **This value is only required if Okta user profile attributes will be retrieved from Okta. The Okta application must be configured with Okta API scope `okta.users.read.self`. 
 
-Type: String
+***Type:*** String
 
-Constraints: Must be a valid Client ID associated with a native Okta application. 
+***Constraints:*** Must be a valid Client ID associated with a native Okta application. 
 
-Required: No
+***Required:*** No
 
 **config/okta_redirect_uri**
 
 A "Sign-in redirect URI" that will be passed in the request to retrieve a session cookie for the Okta application. Each Okta application defines a valid list of redirect URIs that clients are allowed to be redirected to after authentication. The URI does not have to be a valid website, but the URI passed in the request must match the list of URIs allowed by the Okta application for a session cookie to be returned.
 
-Type: Boolean
+***Type:*** Boolean
 
-Constraints: Must be a valid "Sign-in redirect URI" that is allowed in login requests for the Okta application. 
+***Constraints:*** Must be a valid "Sign-in redirect URI" that is allowed in login requests for the Okta application. 
 
-Required: No
+***Required:*** No
 
 Default: `awstransfer:/callback`
 
@@ -1291,11 +1291,11 @@ When set to `true`, indicates Okta is configured to required MFA. When enabled, 
 
 Currently, only TOTP-based MFA (e.g. Google Authenticator) is supported by this module.
 
-Type: Boolean
+***Type:*** Boolean
 
-Constraints: Must be `true` or `false`
+***Constraints:*** Must be `true` or `false`
 
-Required: No
+***Required:*** No
 
 Default: `false`
 
@@ -1303,11 +1303,11 @@ Default: `false`
 
 The number of digits to expect in the MFA token that is appended to the password. By default, a 6-digit code is assumed.
 
-Type: Integer
+***Type:*** Integer
 
-Constraints: Must be an integer greater than zero
+***Constraints:*** Must be an integer greater than zero
 
-Required: No
+***Required:*** No
 
 Default: `6`
 
@@ -1331,11 +1331,11 @@ For example, if you wish to pass a `Uid` and `Gid` from Okta to AWS Transfer to 
 > [!NOTE]  
 > Any attributes returned will override corresponding values that have been specified in the user's record from the `users` table. 
 
-Type: Map
+***Type:*** Map
 
-Constraints: Only attribute keys `Gid`, `Uid`, `Policy`, and `Role` are supported.
+***Constraints:*** Only attribute keys `Gid`, `Uid`, `Policy`, and `Role` are supported.
 
-Required: No
+***Required:*** No
 
 Default: *none*
 
@@ -1348,11 +1348,11 @@ When enabled the value is missing, any corresponding values that have been speci
 > [!NOTE]  
 > It is recommended this be set to `false`, since missing or empty attributes could indicate the user's Okta profile has not been correctly configured and an empty attribute such as `Policy` could provide less restrictive access than desired. 
 
-Type: Boolean
+***Type:*** Boolean
 
-Constraints: Must be `true` or `false`
+***Constraints:*** Must be `true` or `false`
 
-Required: No
+***Required:*** No
 
 Default: `false`
 
@@ -1438,41 +1438,41 @@ The Public Key module is used to perform authentication with public/private key 
 
 A name used for referencing the provider in the `users` table. This value is also used when users specify an identity provider during authentication (e.g. `username@provider`).
 
-**Type:** String
+***Type:*** String
 
-**Constraints:** None
+***Constraints:*** None
 
-**Required:** Yes
-
-**module**
-
-The name of the public key module that will be loaded to perform authentication. **This should be set to `public_key`.**
-
-Type: String
-
-Constraints: None
-
-Required: Yes
+***Required:*** Yes
 
 **module**
 
 The name of the public key module that will be loaded to perform authentication. **This should be set to `public_key`.**
 
-Type: String
+***Type:*** String
 
-Constraints: None
+***Constraints:*** None
 
-Required: Yes
+***Required:*** Yes
+
+**module**
+
+The name of the public key module that will be loaded to perform authentication. **This should be set to `public_key`.**
+
+***Type:*** String
+
+***Constraints:*** None
+
+***Required:*** Yes
 
 **public_key_support**
 
 Indicates that the identity provider supports handling public key authentication. **This should always be set to `true` for this module.**
 
-**Type:** Boolean
+***Type:*** Boolean
 
-**Constraints:** None
+***Constraints:*** None
 
-**Required:** Yes
+***Required:*** Yes
 
 ##### Example
 
@@ -1899,7 +1899,7 @@ Follow these same steps to return the **LogLevel** setting to `INFO` after finis
   < HTTP/1.1 200 OK
   < Server: Server
   < Date: Wed, 27 Mar 2024 19:48:28 GMT
-  < Content-Type: text/plain
+  < Content-***Type:*** text/plain
   < Content-Length: 42
   < Connection: keep-alive
   < x-amzn-RequestId: ACKLHF5MV4GRO07E4GDI2U5FF3VV4KQNSO5AEMVJF66Q9ASUAAJG
