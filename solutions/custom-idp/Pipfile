@@ -9,7 +9,7 @@ argon2-cffi = "*"
 ldap3 = "*"
 urllib3 = "*"
 aws-xray-sdk = "*"
-
+aws-lambda-powertools = {extras = ["tracer"], version = "*"}
 
 [dev-packages]
 

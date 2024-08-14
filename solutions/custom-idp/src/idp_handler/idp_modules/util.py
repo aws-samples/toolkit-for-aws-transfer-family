@@ -4,14 +4,16 @@ import os
 import datetime
 import boto3
 import random
-from aws_xray_sdk.core import patch_all, xray_recorder
 from botocore.config import Config
 from botocore.exceptions import ClientError
 from enum import Enum
 
-patch_all()
+from aws_lambda_powertools import Tracer
+from aws_lambda_powertools.utilities.typing import LambdaContext
 
-@xray_recorder.capture()
+tracer = Tracer()
+
+@tracer.capture_method
 def get_log_level():
     return logging.DEBUG if os.environ.get("LOGLEVEL", "INFO").upper() == "DEBUG" else logging.INFO
 
@@ -33,7 +35,7 @@ class AuthenticationMethod(Enum):
 
 
 
-@xray_recorder.capture()
+@tracer.capture_method
 def get_secret(secret_id):
     client = boto3.session.Session().client(
         service_name="secretsmanager", config=boto3_config
@@ -56,7 +58,7 @@ def get_secret(secret_id):
         return None
 
 
-@xray_recorder.capture()
+@tracer.capture_method
 def get_transfer_server_details(server_id):
     client = boto3.session.Session().client(
         service_name="transfer", config=boto3_config
@@ -72,25 +74,25 @@ def get_transfer_server_details(server_id):
         return None
 
 
-@xray_recorder.capture()
+@tracer.capture_method
 def fetch_cache(cache, key, exp_time, jitter=120):
     if cache.get(key, None) is None or (
         datetime.datetime.now()
         - cache.get(key, {}).get("timestamp", datetime.datetime.fromtimestamp(0))
     ).seconds > exp_time + random.randint(0, jitter):
-        logger.info(f"Cache for {key} does not exist or is expired. Returning None")
+        logger.debug(f"Cache for {key} does not exist or is expired. Returning None")
         return None
     else:
-        logger.info(f"Using cached value for {key}")
+        logger.debug(f"Using cached value for {key}")
 
     return cache[key]["value"]
 
 
-@xray_recorder.capture()
+@tracer.capture_method
 def set_cache(cache, key, value):
     if cache is None:
         cache = {}
-    logger.info(f"Setting value for key {key} in cache")
+    logger.debug(f"Setting value for key {key} in cache")
     cache[key] = {
         "value": value,
         "timestamp": datetime.datetime.now(),
@@ -98,7 +100,7 @@ def set_cache(cache, key, value):
     return cache
 
 
-@xray_recorder.capture()
+@tracer.capture_method
 def fetch_secret_cache(secret_cache, secret_arn, exp_time=60):
     if fetch_cache(secret_cache, secret_arn, exp_time) is None:
         logger.info(f"Fetching secret {secret_arn}")
