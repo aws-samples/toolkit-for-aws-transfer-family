@@ -1012,7 +1012,7 @@ The port number of the LDAP or Active Directory server to connect to. This is ty
 
 ***Required:*** No
 
-Default: `636`
+***Default:*** `636`
 
 **config/ssl**
 
@@ -1024,7 +1024,7 @@ Determines if an SSL connection should be established to the server. SSL is enab
 
 ***Required:*** No
 
-Default: `true`
+***Default:*** `true`
 
 **config/ssl_verify**
 
@@ -1036,7 +1036,7 @@ When set to `true` and connecting with SSL, the identity of the server will be v
 
 ***Required:*** No
 
-Default: `true`
+***Default:*** `true`
 
 **config/ldap_ssl_ca_secret_arn**
 
@@ -1057,7 +1057,7 @@ CERTIFICATE CONTENTS HERE
 
 ***Required:*** No
 
-Default: *none*
+***Default:*** *none*
 
 **config/ldap_service_account_secret_arn***
 
@@ -1082,7 +1082,7 @@ The Secrets Manager secret value should be in the following format:
 
 ***Required:*** No
 
-Default: *none*
+***Default:*** *none*
 
 **config/attributes**
 
@@ -1110,7 +1110,7 @@ For example, if you wish to pass a `Uid` and `Gid` from AD or LDAP to AWS Transf
 
 ***Required:*** No
 
-Default: *none*
+***Default:*** *none*
 
 **config/ignore_missing_attributes**
 
@@ -1127,7 +1127,7 @@ When set to `false` and the attribute is missing or empty in the user's LDAP obj
 
 ***Required:*** No
 
-Default: `false`
+***Default:*** `false`
 
 ##### Example
 ```json
@@ -1283,7 +1283,7 @@ A "Sign-in redirect URI" that will be passed in the request to retrieve a sessio
 
 ***Required:*** No
 
-Default: `awstransfer:/callback`
+***Default:*** `awstransfer:/callback`
 
 **config/mfa**
 
@@ -1297,7 +1297,7 @@ Currently, only TOTP-based MFA (e.g. Google Authenticator) is supported by this 
 
 ***Required:*** No
 
-Default: `false`
+***Default:*** `false`
 
 **config/mfa_token_length**
 
@@ -1309,7 +1309,7 @@ The number of digits to expect in the MFA token that is appended to the password
 
 ***Required:*** No
 
-Default: `6`
+***Default:*** `6`
 
 **config/attributes**
 
@@ -1337,7 +1337,7 @@ For example, if you wish to pass a `Uid` and `Gid` from Okta to AWS Transfer to 
 
 ***Required:*** No
 
-Default: *none*
+***Default:*** *none*
 
 **config/ignore_missing_attributes**
 
@@ -1354,7 +1354,7 @@ When enabled the value is missing, any corresponding values that have been speci
 
 ***Required:*** No
 
-Default: `false`
+***Default:*** `false`
 
 ##### Example
 
