@@ -971,9 +971,11 @@ The DNS address or IP address of the LDAP server or Active Directory domain to c
 
 When a StringSet is used, multiple servers can be specified. These addresses will be added to a pool and authentication requests will be sent by the Lambda function in a round robin basis. If a server becomes unreachable, it will be removed from the pool and periodically retried. More details on server pool implementation can be found in the [Python ldap3 module documentation](https://ldap3.readthedocs.io/en/latest/server.html#server-pool).
 
+Note: When adding or removing servers to this field it may take up to 5 minutes for the Lambda function to begin using this. This is because each Lambda execution environment caches the server pool for 5 minutes. 
+
 Type: String or StringSet
 
-Constraints: Must be a FQDN or IP address
+Constraints: Must be a valid FQDN or IP address
 
 Required: Yes
 
