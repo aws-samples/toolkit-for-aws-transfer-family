@@ -35,14 +35,11 @@ Parameters:
     AllowedValues: ['true', 'false']
     Default: 'false'
   UserNameDelimiter:
-    Description: Delimiter for user name
+    Description: Delimiter used for username and identity provider. DEPRECATED - Only '@' is supported due to validation checks that AWS Transfer Family performs on the username field. 
     Type: String
-    Default: '$'
+    Default: '@'
     AllowedValues:
       - '@'
-      - '$'
-      - '\\'
-      - '/'
     MaxLength: 1
     MinLength: 1
   LogLevel:

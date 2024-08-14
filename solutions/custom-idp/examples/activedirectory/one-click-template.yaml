@@ -42,14 +42,11 @@ Parameters:
       - 'true'
       - 'false'
   UserNameDelimiter:
-    Description: Delimiter for user name
+    Description: Delimiter used for username and identity provider. Only '@' is supported due to validation checks that AWS Transfer Family performs on the username. 
     Type: String
     Default: '@'
     AllowedValues:
       - '@'
-      - '$'
-      - '\\'
-      - '/'
     AllowedPattern: '[@\\\/\-]'
     MaxLength: 1
     MinLength: 1
@@ -63,7 +60,7 @@ Parameters:
          - DEBUG
 
   ProvisionApi:
-    Description: 'Provision an API Gateway REST API. Enable this if you would like AWS Transfer to use a REST-based custom IdP instead of directly invoking the Lambda function.'
+    Description: 'When set, provisions an API Gateway REST API. Enable this if you would like AWS Transfer to use a REST-based custom IdP instead of directly invoking the Lambda function.'
     Type: String
     Default: 'false'
     AllowedValues:
@@ -71,7 +68,7 @@ Parameters:
       - 'false'
 
   EnableTracing:
-    Description: Enable X-ray tracing on various components
+    Description: When set, enables X-ray tracing on various components
     Type: String
     Default: 'false'
     AllowedValues:
