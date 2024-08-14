@@ -1,16 +1,16 @@
-## AWS Transfer Custom IdP Solution
+## AWS Transfer Family Custom IdP Solution
 
 Content
 
-- [AWS Transfer Custom IdP Solution](#aws-transfer-custom-idp-solution)
-- [Introduction](#introduction)
+- [AWS Transfer Family Custom IdP Solution](#aws-transfer-family-custom-idp-solution)
+- [What is AWS Transfer Family Custom IdP Solution?](#what-is-aws-transfer-family-custom-idp-solution)
 - [Solution Overview](#solution-overview)
 - [Architecture](#architecture)
   - [Process flow details](#process-flow-details)
     - [Lambda function](#lambda-function)
     - [Authentication module](#authentication-module)
   - [DynamoDB tables](#dynamodb-tables)
-- [Setup instructions](#setup-instructions)
+- [Getting Started](#getting-started)
   - [Prerequisites](#prerequisites)
   - [Deploy the solution](#deploy-the-solution)
   - [Deploy an AWS Transfer server](#deploy-an-aws-transfer-server)
@@ -46,6 +46,7 @@ Content
 - [AWS Transfer session settings inheritance](#aws-transfer-session-settings-inheritance)
   - [Example](#example-4)
 - [Modifying/updating solution parameters](#modifyingupdating-solution-parameters)
+- [Updating the solution](#updating-the-solution)
 - [Uninstall the solution](#uninstall-the-solution)
   - [Cleanup remaining artifacts](#cleanup-remaining-artifacts)
 - [Logging and troubleshooting](#logging-and-troubleshooting)
@@ -62,12 +63,12 @@ Content
 - [License](#license)
 
 
-## Introduction
-There are several examples of custom identity providers for AWS Transfer in AWS blog posts an documentation, but there have been no standard patterns for implementing a custom provider that accounts for details including logging and where to store the additional session metadata needed for AWS Transfer, such as the `HomeDirectoryDetails`. This solution provides a reusable foundation for implementing custom identity providers with granular per-user session configuration, and decouples the identity provider authentication logic from the reusable logic that builds a configuration that is returned to AWS Transfer to complete authentication and establish settings for the session. 
+## What is AWS Transfer Family Custom IdP Solution?
+The AWS Transfer Family Custom IdP Solution is a modular [custom identity provider](https://docs.aws.amazon.com/transfer/latest/userguide/custom-lambda-idp.html) solution that solves for many common use authentication and authorization use cases that enterprises have when implementing the service.  This solution provides a reusable foundation for implementing custom identity providers with granular per-user session configuration and separates authentication and authorization logic, offering a flexible and easy-to-maintain foundation for various use cases.
 
 ## Solution Overview
 
-This IdP solution separates authentication and authorization logic, offering a flexible and easy-to-maintain foundation for various use cases. The solution provides these key features:
+The AWS Transfer Family Custom IdP Solution provides these key features:
 
 * An [AWS Serverless Application Model (AWS SAM)](https://aws.amazon.com/serverless/sam/) template that provisions the required resources. Optionally, deploy and configure [AWS API Gateway](https://aws.amazon.com/api-gateway/) to [incorporate AWS WAF](https://aws.amazon.com/blogs/storage/securing-aws-transfer-family-with-aws-web-application-firewall-and-amazon-api-gateway/).
 * An [Amazon DynamoDB](https://aws.amazon.com/dynamodb/) schema to store configuration metadata about users and IdPs, including user session settings such as `HomeDirectoryDetails`, `Role`, and `Policy`.
@@ -78,7 +79,7 @@ This IdP solution separates authentication and authorization logic, offering a f
 * Detailed logging with configurable log-level and tracing support to aide in troubleshooting
 
 ## Architecture
-The solution deploys an AWS Lambda function along with an Amazon DynamoDB database to store configuration metadata about users and IdPs. You can plug in different IdP modules (e.g. LDAP, Okta, public/private keys) into the solution to handle authentication against various identity sources. This modular approach enables the addition of new IdPs in the future and provides the ability to develop custom modules. The user records in the DynamoDB table map usernames to specific IdPs and store per-user settings like home directory details, roles, and POSIX profiles. When a user attempts to connect to the AWS Transfer Family server, the custom IdP Lambda function authenticates the user against the configured IdP module, retrieves the user-specific session settings from DynamoDB, and provisions those settings for the Transfer Family session.
+AWS Transfer Family Custom IdP Solution deploys an AWS Lambda function along with an Amazon DynamoDB database to store configuration metadata about users and IdPs. You can configure different modules (e.g. LDAP, Okta, public/private keys) to handle authentication against various IdPs. This modular approach enables the addition of new IdPs in the future and provides the ability to develop custom modules. The user records in the DynamoDB table map usernames to specific IdPs and store per-user settings like home directory details, roles, and POSIX profiles. When a client connects to the AWS Transfer Family server, the custom IdP Lambda function authenticates the user against the configured IdP module, retrieves the user-specific session settings from DynamoDB, and provisions those settings for the session.
 
 ![](diagrams/aws-transfer-custom-idp-solution-high-level-architecture.drawio.png)
 
@@ -86,7 +87,7 @@ The solution deploys an AWS Lambda function along with an Amazon DynamoDB databa
 
 #### Lambda function
 
-The Lambda function's handler method contains logic for identifying the user and identity provider module to use to perform the authentication. It also checks if the source IP is allowed to initiate an authentication request (based on ipv4_allow_list attribute in each user record) before invoking the target identity provider module.
+The Custom IdP Lambda function's handler method contains logic for determining the user configuration and identity provider module to use to perform authentication. It also checks if the source IP is allowed to initiate an authentication request (based on ipv4_allow_list attribute in each user record) before invoking the target identity provider module.
 
 ![](diagrams/aws-transfer-custom-idp-solution-authentication-logic.drawio.png)
 
@@ -96,15 +97,15 @@ The Lambda function's handler method contains logic for identifying the user and
 3. Using an `identity_provider_key` field, the Lambda performs a lookup on the `identity_providers` table to obtain IdP information. The `module` field in the response is used to call an IdP-specific module. The lambda then passes the parsed username, `identity_provider` and `user` records to the identity provider to continue the authentication flow. 
         
 4. The identity provider module reads the provider-specific settings from the `identity_provider` record it receives. It then uses this to connect to the identity provider and passes the user credentials to authenticate. Since many identity providers are only available on private networks, the Lambda is VPC-attached and uses an ENI in a VPC for private network communication.
+    > [!NOTE]  
+    > Depending on the logic in the module and the configuration in the `identity_provider` record, the module could retrieve/return additional attributes for making authorization decisions. This is a module-specific implementation detail. For example, the LDAP module supports attribute retrieval.
         
-  **Note: **** **Depending on the logic in the module and the configuration in the `identity_provider` record, the module could retrieve/return additional attributes for making authorization decisions. This is a module-specific implementation detail. For example, the LDAP module supports attribute retrieval.
-        
-6. After the identity provider module completes authentication, it can make additional authorization decisions based on what is in the user record and its own custom logic. It then finalizes all AWS Transfer session settings (i.e. `Role` and `HomeDirectoryDetails` and returns them to the handler function. The handler function does final validation and returns the response to AWS Transfer.
+1. After the identity provider module completes authentication, it can make additional authorization decisions based on what is in the user record and its own custom logic. It then finalizes all AWS Transfer session settings (i.e. `Role` and `HomeDirectoryDetails` and returns them to the handler function. The handler function does final validation and returns the response to AWS Transfer.
 
 
 #### Authentication module
 
-The process flow diagram below is meant to serve as an example of what an individual identity provider module's logic would look like. All modules have the same entrypoint, `handle_auth`, and must return a response that is valid to AWS Transfer.
+The process flow diagram below is meant to serve as an example of what an individual identity provider module's logic would look like. All modules have the same entrypoint, `handle_auth`, and must return a response that is valid to AWS Transfer. Identity provider modules are built into the solution, and it is also possible to create additional modules or customize an existing one by forking this solution's repository.
 
 ![](diagrams/aws-transfer-custom-idp-solution-ldap-module-process-flow.drawio.png)
 
@@ -117,9 +118,12 @@ The solution contains two DynamoDB tables:
 
 These tables are created by default when deploying the SAM template. The SAM template also contains optional parameters that allow you to use existing DynamoDB tables when deploying the solution.
 
-## Setup instructions
+## Getting Started
+
+The AWS Transfer Family Custom IdP Solution is deployed using a Serverless Application Model (SAM) template. The sections below describe how to deploy the solution into an AWS account, connect it to an AWS Transfer Family server, and configure a user and identity provider. 
 
 ### Prerequisites
+Before deploying the solution, you will need the following: 
 * A Virtual Private Cloud (VPC) with private subnets with either internet connectivity via NAT Gateway, or a DynamoDB Gateway Endpoint. 
 * Appropriate IAM permissions to deploy the `custom-idp.yaml` CloudFormation template, including but not limited to creating CodePipeline and CodeBuild projects, IAM roles, and IAM policies.
 
@@ -132,13 +136,13 @@ These tables are created by default when deploying the SAM template. The SAM tem
     ![CloudShell session running](screenshots/ss-deploy-01-cloudshell.png)
 
 2. Clone the solution into your environment:
-    ```
+    ```bash
     cd ~
     git clone https://github.com/aws-samples/toolkit-for-aws-transfer-family.git
     ```
     
-3. Run the following command to run the build script, which downloads all package dependencies and generates archives for the Lambda layer and function used in the solution.
-    ```
+3. Run the following command to start the build script, which downloads all package dependencies and generates archives for the Lambda layer and function used in the solution.
+    ```bash
     cd ~/toolkit-for-aws-transfer-family/solutions/custom-idp
     ./build.sh
     ```
@@ -146,9 +150,8 @@ These tables are created by default when deploying the SAM template. The SAM tem
 
 4. Begin the SAM deployment by using the following command
 
-    ```
+    ```bash
     sam deploy --guided --capabilities "CAPABILITY_NAMED_IAM"
-
     ```
     At the prompts, provide the following information:
     | Parameter | Description | Value |
@@ -175,7 +178,8 @@ These tables are created by default when deploying the SAM template. The SAM tem
 
 ### Deploy an AWS Transfer server
 
-***Note***: If you have an existing AWS Transfer server configured to use a custom identity provider, it can be modified to use the Lambda function or API Gateway REST API instead of creating a new server. To do this, go to the AWS Transfer console, select the server, and click **Edit** next to the *Identity provider** section. If the server was not configured with a custom identity provider, or if you wish to switch between Lambda and API Gateway based providers, you will need to re-provision your AWS Transfer server.
+> [!NOTE]  
+> If you have an existing AWS Transfer server configured to use a custom identity provider, it can be modified to use the Lambda function or API Gateway REST API instead of creating a new server. To do this, go to the AWS Transfer console, select the server, and click **Edit** next to the *Identity provider** section. If the server was not configured with a custom identity provider, or if you wish to switch between Lambda and API Gateway based providers, you will need to re-provision your AWS Transfer server.
 
 1. Go to the AWS Transfer console in the region where the solution is deployed and click **Create server**.
    
@@ -971,7 +975,8 @@ The DNS address or IP address of the LDAP server or Active Directory domain to c
 
 When a StringSet is used, multiple servers can be specified. These addresses will be added to a pool and authentication requests will be sent by the Lambda function in a round robin basis. If a server becomes unreachable, it will be removed from the pool and periodically retried. More details on server pool implementation can be found in the [Python ldap3 module documentation](https://ldap3.readthedocs.io/en/latest/server.html#server-pool).
 
-Note: When adding or removing servers to this field it may take up to 5 minutes for the Lambda function to begin using this. This is because each Lambda execution environment caches the server pool for 5 minutes. 
+> [!NOTE]  
+> When adding or removing servers to this field it may take up to 5 minutes for the Lambda function to begin using this. This is because each Lambda execution environment caches the server pool for 5 minutes. 
 
 ***Type:*** String or StringSet
 
@@ -1655,8 +1660,8 @@ The following is an example of a user record that contains public keys that are 
 When an AWS Transfer Family custom identity provider authenticates a user, it returns all session setup properties such as the `HomeDirectoryDetails`, `Role`, and `PosixProfile` . To maximize the flexibility, most of these values can be specified in the user record, identity provider record. Values can also be retrieved from some identity providers (i.e. the LDAP module supports retrieving `Uid` and `Gid` attributes). When a value is contained in multiple locations, there is an ordered inheritance/priority to merge the final values together. Below is the inheritance order, with 1 being the highest priority:
 
 1. Values returned by the identity provider. 
-
-    **Note:** Each identity provider module is responsible for the logic to apply/override values.
+    > [!NOTE]  
+    > Each identity provider module is responsible for the logic to apply/override values.
 2. Values in `config` field of the user record `users` table
 3. values in the `config` of the identity provider record in the `identity_providers` table
 
@@ -1769,6 +1774,36 @@ If you need to change the parameters that were used to deploy the solution initi
 4. At the **Review stack** page, review all parameters and settings, click the checkbox next to *I acknowledge that AWS CloudFormation might create IAM resources with custom names*, then click **Submit**. 
 5. Wait for the CloudFormation stack to finish updating. Once completed, the solution is reconfigured with the updated parameters.
 
+## Updating the solution
+The solution maintainers periodically apply enhancements and bugfixes to the solution that can be applied. Updating the solution can be done . While the maintainers strive to minimize breaking changes, any updates should be deployed tested in a non-production environment first.
+
+1. Log into the AWS account you wish to deploy the solution in, switch to the region the solution is deployed to, and start a CloudShell session.
+
+    ![CloudShell session running](screenshots/ss-deploy-01-cloudshell.png)
+    
+    > [!IMPORTANT]  
+    > Make sure you are running CloudShell in the same region as where the solution was deployed.
+
+2. Clone the latest version of the solution repository into your environment:
+    ```bash
+    cd ~
+    rm -rf toolkit-for-aws-transfer-family
+    git clone https://github.com/aws-samples/toolkit-for-aws-transfer-family.git
+    ```
+    
+3. Run the following command to start the build script, which downloads all package dependencies and generates archives for the Lambda layer and function used in the solution.
+    ```bash
+    cd ~/toolkit-for-aws-transfer-family/solutions/custom-idp
+    ./build.sh
+    ```
+4. Use the following command to update the existing CloudFormation stack, replacing `[STACKNAME]` with the name of the existing stack.
+    ```bash
+    sam deploy --stack-name [STACKNAME] --capabilities "CAPABILITY_NAMED_IAM" --resolve-s3
+    ```
+
+When the update completes, verify any existing authentication methods work successfully. 
+
+
 ## Uninstall the solution
 If you need to uninstall the solution for any reason, you can do so by deleting the both the custom IdP and installer stacks using the steps below.
 1. Go to [*Stacks*](https://console.aws.amazon.com/cloudformation/home#/stacks) in the CloudFormation console and select the **[STACK NAME]-awstransfer-custom-idp** stack. Click **Delete**, then click **Delete** again in the dialog that appears. Wait for the deletion to complete.
@@ -1858,7 +1893,8 @@ Follow these same steps to return the **LogLevel** setting to `INFO` after finis
 * **Can I use Password AND Key (multi method) authentication with the Custom IdP solution?** 
   Yes. With Password AND Key authentication configured on an AWS Transfer Family server, the public keys listed in the `PublicKeys` attribute of the user record will be used automatically during the key authentication request, then the identity provider module associated will handle the password request. For an example of how to populate the `PublicKeys` attribute, see the [Public Key](#public-key) identity provider module reference.
   
-  Note: Some identity provider modules may be able to support both password and key based authentication, in which case the `public_key_support` attribute will be set to `true` in the `identity_providers` record. In this case, the module may not use the `PublicKeys` attribute and retrieve user public keys from another source. 
+  > [!NOTE]  
+  > Some identity provider modules may be able to support both password and key based authentication, in which case the `public_key_support` attribute will be set to `true` in the `identity_providers` record. In this case, the module may not use the `PublicKeys` attribute and retrieve user public keys from another source. 
 
 
 ## Common issues
