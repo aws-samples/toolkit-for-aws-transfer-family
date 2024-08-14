@@ -1,6 +1,6 @@
-name: Help and troubleshooting
-description: Create a request for help and troubleshooting.
-title: "[HELP] <title>"
+name: "Help and troubleshooting"
+description: "Create a request for help and troubleshooting."
+title: "[HELP] TITLE HERE"
 labels: "help"
 
 body:
