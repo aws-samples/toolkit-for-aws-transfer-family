@@ -6,48 +6,48 @@ To get started, review the [Solution Overview](#solution-overview), then followi
 ## Contents
 - [AWS Transfer Family Custom IdP Solution](#aws-transfer-family-custom-idp-solution)
   - [Contents](#contents)
-  - [Solution Overview](#solution-overview)
-  - [Architecture](#architecture)
-    - [Process flow details](#process-flow-details)
-      - [Lambda function](#lambda-function)
-      - [Authentication module](#authentication-module)
-    - [DynamoDB tables](#dynamodb-tables)
-  - [Getting Started](#getting-started)
-    - [Prerequisites](#prerequisites)
-    - [Deploy the solution](#deploy-the-solution)
-    - [Deploy an AWS Transfer server](#deploy-an-aws-transfer-server)
-    - [Define identity providers](#define-identity-providers)
-    - [Define users](#define-users)
-    - [(Optional) Define a `$default$` user record](#optional-define-a-default-user-record)
-    - [Test the provider](#test-the-provider)
-    - [Next steps](#next-steps)
-  - [Getting help](#getting-help)
-  - [User record reference](#user-record-reference)
-    - [DynamoDB Record Schema](#dynamodb-record-schema)
-    - [Parameters](#parameters)
-  - [Identity provider modules](#identity-provider-modules)
-    - [How identity provider modules work](#how-identity-provider-modules-work)
-    - [Identity provider module reference](#identity-provider-module-reference)
-      - [Argon2](#argon2)
-        - [DynamoDB Record Schema](#dynamodb-record-schema-1)
-        - [Parameters](#parameters-1)
-        - [Example](#example)
-      - [LDAP and Active Directory](#ldap-and-active-directory)
-        - [DynamoDB Record Schema](#dynamodb-record-schema-2)
-        - [Parameters](#parameters-2)
-        - [Example](#example-1)
-      - [Okta](#okta)
-        - [DynamoDB Record Schema](#dynamodb-record-schema-3)
-        - [Parameters](#parameters-3)
-        - [Example](#example-2)
-      - [Cognito](#cognito)
-        - [DynamoDB Record Schema](#dynamodb-record-schema-4)
-        - [Parameters](#parameters-4)
-        - [Example](#example-3)
-      - [Public Key](#public-key)
-        - [DynamoDB Record Schema](#dynamodb-record-schema-5)
-        - [Parameters](#parameters-5)
-        - [Example](#example-4)
+- [Solution Overview](#solution-overview)
+- [Architecture](#architecture)
+  - [Process flow details](#process-flow-details)
+    - [Lambda function](#lambda-function)
+    - [Authentication module](#authentication-module)
+  - [DynamoDB tables](#dynamodb-tables)
+- [Getting Started](#getting-started)
+  - [Prerequisites](#prerequisites)
+  - [Deploy the solution](#deploy-the-solution)
+  - [Deploy an AWS Transfer server](#deploy-an-aws-transfer-server)
+  - [Define identity providers](#define-identity-providers)
+  - [Define users](#define-users)
+  - [(Optional) Define a `$default$` user record](#optional-define-a-default-user-record)
+  - [Test the provider](#test-the-provider)
+  - [Next steps](#next-steps)
+- [Getting help](#getting-help)
+- [User record reference](#user-record-reference)
+  - [DynamoDB Record Schema](#dynamodb-record-schema)
+  - [Parameters](#parameters)
+- [Identity provider modules](#identity-provider-modules)
+  - [How identity provider modules work](#how-identity-provider-modules-work)
+  - [Identity provider module reference](#identity-provider-module-reference)
+    - [Argon2](#argon2)
+      - [DynamoDB Record Schema](#dynamodb-record-schema-1)
+      - [Parameters](#parameters-1)
+      - [Example](#example)
+    - [Cognito](#cognito)
+      - [DynamoDB Record Schema](#dynamodb-record-schema-2)
+      - [Parameters](#parameters-2)
+      - [Example](#example-1)
+    - [LDAP and Active Directory](#ldap-and-active-directory)
+      - [DynamoDB Record Schema](#dynamodb-record-schema-3)
+      - [Parameters](#parameters-3)
+      - [Example](#example-2)
+    - [Okta](#okta)
+      - [DynamoDB Record Schema](#dynamodb-record-schema-4)
+      - [Parameters](#parameters-4)
+      - [Example](#example-3)
+    - [Public Key](#public-key)
+      - [DynamoDB Record Schema](#dynamodb-record-schema-5)
+      - [Parameters](#parameters-5)
+      - [Example](#example-4)
       - [Secrets Manager](#secrets-manager)
   - [AWS Transfer session settings inheritance](#aws-transfer-session-settings-inheritance)
     - [Example](#example-5)
@@ -68,7 +68,7 @@ To get started, review the [Solution Overview](#solution-overview), then followi
   - [Security](#security)
   - [License](#license)
 
-## Solution Overview
+# Solution Overview
 
 The AWS Transfer Family Custom IdP Solution provides these key features:
 
@@ -80,14 +80,14 @@ The AWS Transfer Family Custom IdP Solution provides these key features:
 * Built-in IP allow-list checking, such as IP allow lists that can optionally be configured on a per-user or per-IdP basis.
 * Detailed logging with configurable log-level and tracing support to aide in troubleshooting
 
-## Architecture
+# Architecture
 AWS Transfer Family Custom IdP Solution deploys an AWS Lambda function along with an Amazon DynamoDB database to store configuration metadata about users and IdPs. You can configure different modules (e.g. LDAP, Okta, public/private keys) to handle authentication against various IdPs. This modular approach enables the addition of new IdPs in the future and provides the ability to develop custom modules. The user records in the DynamoDB table map usernames to specific IdPs and store per-user settings like home directory details, roles, and POSIX profiles. When a client connects to the AWS Transfer Family server, the custom IdP Lambda function authenticates the user against the configured IdP module, retrieves the user-specific session settings from DynamoDB, and provisions those settings for the session.
 
 ![](diagrams/aws-transfer-custom-idp-solution-high-level-architecture.drawio.png)
 
-### Process flow details
+## Process flow details
 
-#### Lambda function
+### Lambda function
 
 The Custom IdP Lambda function's handler method contains logic for determining the user configuration and identity provider module to use to perform authentication. It also checks if the source IP is allowed to initiate an authentication request (based on ipv4_allow_list attribute in each user record) before invoking the target identity provider module.
 
@@ -105,13 +105,13 @@ The Custom IdP Lambda function's handler method contains logic for determining t
 5. After the identity provider module completes authentication, it can make additional authorization decisions based on what is in the user record and its own custom logic. It then finalizes all AWS Transfer session settings (i.e. `Role` and `HomeDirectoryDetails` and returns them to the handler function. The handler function does final validation and returns the response to AWS Transfer.
 
 
-#### Authentication module
+### Authentication module
 
 The process flow diagram below is meant to serve as an example of what an individual identity provider module's logic would look like. All modules have the same entrypoint, `handle_auth`, and must return a response that is valid to AWS Transfer. Identity provider modules are built into the solution, and it is also possible to create additional modules or customize an existing one by forking this solution's repository.
 
 ![](diagrams/aws-transfer-custom-idp-solution-ldap-module-process-flow.drawio.png)
 
-### DynamoDB tables
+## DynamoDB tables
 
 The solution contains two DynamoDB tables:
 
@@ -120,11 +120,11 @@ The solution contains two DynamoDB tables:
 
 These tables are created by default when deploying the SAM template. The SAM template also contains optional parameters that allow you to use existing DynamoDB tables when deploying the solution.
 
-## Getting Started
+# Getting Started
 
 The AWS Transfer Family Custom IdP Solution is deployed using a Serverless Application Model (SAM) template. The sections below describe how to deploy the solution into an AWS account, connect it to an AWS Transfer Family server, and configure a user and identity provider. 
 
-### Prerequisites
+## Prerequisites
 Before deploying the solution, you will need the following: 
 * A Virtual Private Cloud (VPC) with private subnets with either internet connectivity via NAT Gateway, or a DynamoDB Gateway Endpoint. 
 * Appropriate IAM permissions to deploy the `custom-idp.yaml` CloudFormation template, including but not limited to creating CodePipeline and CodeBuild projects, IAM roles, and IAM policies.
@@ -132,7 +132,7 @@ Before deploying the solution, you will need the following:
 > [!IMPORTANT]  
 > The solution should be deployed in the same AWS account and region as the target AWS Transfer servers. 
 
-### Deploy the solution
+## Deploy the solution
 1. Log into the AWS account you wish to deploy the solution in, switch to the region you will run AWS Transfer in and start a CloudShell session.
 
     ![CloudShell session running](screenshots/ss-deploy-01-cloudshell.png)
@@ -178,7 +178,7 @@ Before deploying the solution, you will need the following:
     | **SAM configuration file** | The name of the file to save arguments to | `samconfig.toml` (default) |
     | **SAM configuration environment** | The name of the configuration environment to use | `default` (default) |    
 
-### Deploy an AWS Transfer server
+## Deploy an AWS Transfer server
 
 > [!NOTE]  
 > If you have an existing AWS Transfer server configured to use a custom identity provider, it can be modified to use the Lambda function or API Gateway REST API instead of creating a new server. To do this, go to the AWS Transfer console, select the server, and click **Edit** next to the *Identity provider** section. If the server was not configured with a custom identity provider, or if you wish to switch between Lambda and API Gateway based providers, you will need to re-provision your AWS Transfer server.
@@ -216,7 +216,7 @@ Before deploying the solution, you will need the following:
    
     ![AWS Transfer console](screenshots/ss-transfer-07-starting.png)
 
-### Define identity providers
+## Define identity providers
 To get started, you must define one or more identity providers in the DynamoDB table `$[StackName]_identity_providers`. Each identity provider record stores the configuration and identity provider module to use for authenticating users mapped to that provider. For complete details on identity provider modules, settings, and examples see the [Identity Provider Modules](#identity-provider-modules). To get started, this section will define an identity provider that uses the `public_key` module. 
 
 > [!NOTE]  
@@ -255,7 +255,7 @@ To get started, you must define one or more identity providers in the DynamoDB t
 
 2. After reviewing, click **Create Item**. The first identity provider has now been defined. Next, we'll begin defining users.
 
-### Define users
+## Define users
 
 Once identity providers are defined, user records must be created. Each user record may contain the settings that will be used for an AWS Transfer session and can also contain public keys when using the `public_key` module or for AWS Transfer servers configured with **Password AND Key support**. Each record also maps the username to a given identity provider. In this section, we will create a user record and map it to the `publickeys` identity provider created in the previous section.
 
@@ -355,7 +355,7 @@ Once identity providers are defined, user records must be created. Each user rec
 
 6. After reviewing, click **Create Item**. The first user, `jsmith`, has been created and mapped to the `publickeys`. Next we can (optionally) create a *default* user and finally test authentication.
 
-### (Optional) Define a `$default$` user record
+## (Optional) Define a `$default$` user record
 While this solution is designed to provide very granular and flexible authentication and authorization to AWS Transfer users to support a variety of use cases, there are use cases where all users will access the same identity provider and either apply the same AWS Transfer session configuration such as `Role`, `PosixProfile`, and `Policy`, or retrieve session configuration parameters dynamically from the source identity provider itself. The `$default$` user record is designed to support these scenarios. The `$default$` user record is used when the Lambda function is unable to find a user record that matches the username received in the request. 
 
 Here are some important considerations for this record:
@@ -461,7 +461,7 @@ To further illustrate a scenario where `$default$` is used, suppose `PosixProfil
 The record above dynamically maps Active Directory/LDAP attributes `uidNumber`, `gidNumber`, and `comments` to `Uid`, `Gid`, and scopedown `Policy` in the AWS Transfer session configuration.
 
 
-### Test the provider
+## Test the provider
 To test the identity provider `publickeys` and user `jsmith` created in the previous sections, use an SFTP client to connect to the AWS Transfer server. For example, on a Linux or Mac client with `sftp` client installed open a terminal window and enter the command to connect:
 ```bash
   sftp -i path/to/privatekey jsmith@[transfer-server-endpoint-address]
@@ -478,21 +478,21 @@ To view the provider logs, open Cloudwatch Logs and select the log group `/aws/l
 > [!NOTE]  
 > If the Lambda logs don't show failures but SSH key authentication still fails and/or prompts for a password, it's possible that AWS Transfer did not successfully verify the supplied private key against the public key. It's also possible that required session properties were missing or misconfigured in the user record. Check the [AWS Transfer server log group](https://docs.aws.amazon.com/transfer/latest/userguide/structured-logging.html) for additional details.
 
-### Next steps
+## Next steps
 With the solution setup completed and tested, you can begin adding more identity provider and user records and explore advanced functionality in each module to support your use case. The [identity provider modules](#identity-provider-modules) section provides detailed information about each identity provider, its configuration settings, and example configurations. 
 
 
-## Getting help
+# Getting help
 
 The best way to interact with our team is through GitHub. You can open an [issue](https://github.com/aws/tookit-for-aws-transfer-family/issues/new/choose) and choose from one of our templates for bug reports, feature request, etc.
 
 You may also find help on [AWS re:Post](https://repost.aws). When asking a question, tag it with `AWS Transfer Family`.
  
 
-## User record reference
+# User record reference
 Each user record in DynamoDB must follow the schema below to be valid. Some fields are optional but may still be required in specific scenarios. Note that  module could store additional per-user information in the user record. For example, the `argon` module stores the user's password hash in the `argon2_hash` field within the `config` map. Any custom fields such as this are documented in the identity provider module reference section.
 
-### DynamoDB Record Schema
+## DynamoDB Record Schema
 ```json
   {
     "user": {
@@ -555,7 +555,7 @@ Each user record in DynamoDB must follow the schema below to be valid. Some fiel
     }
   }
 ```
-### Parameters
+## Parameters
 **user**
 
 The username of the user that will be authenticating to the identity provider.
@@ -755,10 +755,10 @@ The format is:
 
 ***Required:*** No
 
-## Identity provider modules
+# Identity provider modules
 This section describes how the identity provider modules work and describes the module-specific parameters that are used in each module's configuration. 
 
-### How identity provider modules work
+## How identity provider modules work
 In the `users` table, each user has a corresponding `provider` property that indicates the provider from in the `identity_providers` table that should be used for authentication. 
 1. When a user initiates authentication, the Lambda function retrieves the user record and uses the `provider` value to lookup corresponding record in the `identity_providers` table. 
 2. The Lambda function uses the `module` value to load the corresponding identity provider module (stored in the `idp_handler/idp_modules` directory of the source code)
@@ -766,9 +766,9 @@ In the `users` table, each user has a corresponding `provider` property that ind
 
 Any module-specific settings are stored in the `config` value of the record within the `identity_providers` table. This is a DynamoDB `Map` value that can contain multiple nested values. 
 
-### Identity provider module reference
+## Identity provider module reference
 
-#### Argon2
+### Argon2
 The Argon2 module allows you to generate and use [Argon2](https://en.wikipedia.org/wiki/Argon2) hashed passwords that are stored in the `user` record for authentication. 
 
 This module provides a method to define "local" user credentials within the custom IdP solution. 
@@ -776,7 +776,7 @@ This module provides a method to define "local" user credentials within the cust
 > [!NOTE]  
 > To use this module, you must generate an argon2 hash and store it in an `argon2_hash` field of the `config` for each `user` record. See the **Examples** section below for more details. This solution does not contain self-service password management functionality to allow end users to set passwords.
 
-##### DynamoDB Record Schema
+#### DynamoDB Record Schema
 ```json
 {
   "provider": {
@@ -789,7 +789,7 @@ This module provides a method to define "local" user credentials within the cust
   }     
 }
 ```
-##### Parameters
+#### Parameters
 
 **provider**
 
@@ -811,7 +811,7 @@ The name of the module that will be loaded to perform authentication. **This sho
 
 ***Required:*** Yes
 
-##### Example
+#### Example
 
 The following example configures the argon2 provider with a provider name `local_password`. 
 
@@ -888,10 +888,155 @@ unset -v password; set +o allexport; echo "Enter password"; IFS= read -rs passwo
 ```
 Copy the hash and paste it into the `argon_hash` field in the `user` record above. 
 
-#### LDAP and Active Directory
+### Cognito
+
+The `cognito` module supports authentication with a Cognito user pool. It supports password based authentication, and TOTP-based MFA. 
+
+>[!IMPORTANT]
+> * This module supports local Cognito users only. You cannot sign in a user with a federated IdP connected to Cognito. For more information, see [Things to know about Amazon Cognito user pools third-party sign-in](https://docs.aws.amazon.com/cognito/latest/developerguide/cognito-user-pools-identity-federation.html#cognito-user-pools-identity-federation-how-it-works-considerations) in the Cognito documentation. InitiateAuth and AdminInitiateAuth do not support federation.
+> * Currently, only Cognito's software authenticator MFA (e.g. Google Authenticator) is supported by this module. Cognito's SMS MFA is NOT supported.
+
+#### DynamoDB Record Schema
+```json
+{
+  "provider": {
+    "S": "[provider name]"
+  },
+  "config": {
+    "M": {    
+      "mfa_token_length": {
+        "N": "[token length]"
+      },
+      "cognito_client_id": {
+        "S": "[cognito client id]"
+      },
+      "cognito_user_pool_region": {
+        "S": "[cognito user pool region]"
+      },  
+      "mfa": {
+        "BOOL": [true or false]
+      }
+    }
+  },
+  "module": {
+    "S": "cognito"
+  }
+}
+```
+#### Parameters
+
+**provider**
+
+A name used for referencing this provider in the `users` table. This value is also used when users specify an identity provider during authentication (e.g. `username@provider`).
+
+***Type:*** String
+
+***Constraints:*** None
+
+***Required:*** Yes
+
+**module**
+
+The name of the Cognito module that will be loaded to perform authentication. **This should be set to `cognito`.**
+
+***Type:*** String
+
+***Constraints:*** None
+
+***Required:*** Yes
+
+**config/cognito_client_id**
+
+The Client ID of the Cognito user pool app client that will be used to perform authentication. The The user pool app client must be a public client. For more information, see the [Creating an app client](https://docs.aws.amazon.com/cognito/latest/developerguide/user-pool-settings-client-apps.html) in the AWS documentation.
+
+***Type:*** String
+
+***Constraints:*** Must be a valid Cognito app client client ID in a user pool.
+
+***Required:*** Yes
+
+**config/cognito_user_pool_region**
+
+The region the Cognito user pool is located in. This is used to ensure the correct Cognito regional endpoint is used for authentication. User pools are regional.
+
+***Type:*** String
+
+***Constraints:*** Must be a valid AWS region (e.g. `us-east-1`)
+
+***Required:*** No
+
+***Default:*** The region the custom identity provider Lambda is running in. 
+
+**config/mfa**
+
+When set to `true`, indicates Cognito is configured to require MFA. When enabled, users must enter their password plus the temporary one-time code when prompted for their password (e.g. `password123456`)
+
+>[!NOTE]
+> Currently, only TOTP-based MFA (e.g. Google Authenticator) is supported by this module. SMS is NOT supported.
+
+>[!IMPORTANT]
+> When this is set, the MFA TOTP code is ALWAYS expected at the end of the password (e.g. `PASSWORD123456`). This is extracted from the password before authentication. If no token is entered, authentication will fail even if the password is incorrect even if MFA is not required because the last x characters of the password will be parsed out of the password (e.g. `PA` password and `SSWORD` for token).
+
+
+***Type:*** Boolean
+
+***Constraints:*** Must be `true` or `false`
+
+***Required:*** No
+
+***Default:*** `false`
+
+**config/mfa_token_length**
+
+The number of digits to expect in the MFA token that is appended to the password. By default, a 6-digit code is assumed. 
+
+***Type:*** Integer
+
+***Constraints:*** Must be an integer greater than zero
+
+***Required:*** No
+
+***Default:*** `6`
+
+
+#### Example
+
+The following example identity provider record configures the Cognito module to:
+* Use to the app client `353r6nqo4bi6baaaasdf123` that is associated with a user pool in `us-east-1`
+* Enable MFA with a 6-digit token
+
+
+```json
+{
+  "provider": {
+    "S": "cognito-pool"
+  },
+  "config": {
+    "M": {    
+      "mfa_token_length": {
+        "N": "6"
+      },
+      "cognito_client_id": {
+        "S": "353r6nqo4bi6baaaasdf123"
+      },
+      "cognito_user_pool_region": {
+        "S": "us-east-1"
+      },    
+      "mfa": {
+        "BOOL": true
+      }
+    }
+  }
+  "module": {
+    "S": "okta"
+  }
+}
+```
+
+### LDAP and Active Directory
 The `ldap` module supports authentication with Active Directory and LDAP servers. Both LDAP and LDAPS are supported. User attributes can be retrieved and mapped to the server response, such as `Uid` and `Gid`. 
 
-##### DynamoDB Record Schema
+#### DynamoDB Record Schema
 ```json
 {
   "provider": {
@@ -948,7 +1093,7 @@ The `ldap` module supports authentication with Active Directory and LDAP servers
   }
 }
 ```
-##### Parameters
+#### Parameters
 
 **provider**
 
@@ -1135,7 +1280,7 @@ When set to `false` and the attribute is missing or empty in the user's LDAP obj
 
 ***Default:*** `false`
 
-##### Example
+#### Example
 ```json
 {
   "provider": {
@@ -1184,11 +1329,11 @@ When set to `false` and the attribute is missing or empty in the user's LDAP obj
   }  
 }
 ```
-#### Okta
+### Okta
 
 The `okta` module supports authentication with an Okta instance. It supports TOTP-based MFA and can optionally retrieve user profile attributes and map them to session settings such as `Uid` and `Gid`. 
 
-##### DynamoDB Record Schema
+#### DynamoDB Record Schema
 ```json
 {
   "provider": {
@@ -1237,7 +1382,7 @@ The `okta` module supports authentication with an Okta instance. It supports TOT
   }
 }
 ```
-##### Parameters
+#### Parameters
 
 **provider**
 
@@ -1362,7 +1507,7 @@ When enabled the value is missing, any corresponding values that have been speci
 
 ***Default:*** `false`
 
-##### Example
+#### Example
 
 The following example identity provider record configures the Okta module to:
 * Connect to the okta domain `dev-xxxxx.okta.com`
@@ -1420,153 +1565,12 @@ The following example identity provider record configures the Okta module to:
 ```
 
 
-#### Cognito
-
-The `cogntio` module supports authentication with a Cognito user pool. It supports password based authentication, and TOTP-based MFA. 
-
->[!IMPORTANT]
-> * This module supports local Cognito users only. You cannot sign in a user with a federated IdP connected to Cognito. For more information, see [Things to know about Amazon Cognito user pools third-party sign-in](https://docs.aws.amazon.com/cognito/latest/developerguide/cognito-user-pools-identity-federation.html#cognito-user-pools-identity-federation-how-it-works-considerations) in the Cognito documentation. InitiateAuth and AdminInitiateAuth do not support federation.
-> * Currently, only Cognito's software authenticator MFA (e.g. Google Authenticator) is supported by this module. Cognito's SMS MFA is NOT supported.
-
-##### DynamoDB Record Schema
-```json
-{
-  "provider": {
-    "S": "[provider name]"
-  },
-  "config": {
-      "mfa_token_length": {
-        "N": "[token length]"
-      },
-      "cognito_client_id": {
-        "S": "[cognito client id]"
-      },
-      "cognito_user_pool_region": {
-        "S": "[cognito user pool region]"
-      },  
-      "mfa": {
-        "BOOL": [true or false]
-      }
-    }
-  },
-  "module": {
-    "S": "cognito"
-  }
-}
-```
-##### Parameters
-
-**provider**
-
-A name used for referencing this provider in the `users` table. This value is also used when users specify an identity provider during authentication (e.g. `username@provider`).
-
-***Type:*** String
-
-***Constraints:*** None
-
-***Required:*** Yes
-
-**module**
-
-The name of the Cognito module that will be loaded to perform authentication. **This should be set to `cognito`.**
-
-***Type:*** String
-
-***Constraints:*** None
-
-***Required:*** Yes
-
-**config/cognito_client_id**
-
-The Client ID of the Cognito user pool app client that will be used to perform authentication. The The user pool app client must be a public client. For more information, see the [Creating an app client](https://docs.aws.amazon.com/cognito/latest/developerguide/user-pool-settings-client-apps.html) in the AWS documentation.
-
-***Type:*** String
-
-***Constraints:*** Must be a valid Cognito app client client ID in a user pool.
-
-***Required:*** Yes
-
-**config/cognito_user_pool_region**
-
-The region the Cognito user pool is located in. This is used to ensure the correct Cognito regional endpoint is used for authentication. User pools are regional.
-
-***Type:*** String
-
-***Constraints:*** Must be a valid AWS region (e.g. `us-east-1`)
-
-***Required:*** No
-
-***Default:*** The region the custom identity provider Lambda is running in. 
-
-**config/mfa**
-
-When set to `true`, indicates Cognito is configured to require MFA. When enabled, users must enter their password plus the temporary one-time code when prompted for their password (e.g. `password123456`)
-
->[!NOTE]
-> Currently, only TOTP-based MFA (e.g. Google Authenticator) is supported by this module. SMS is NOT supported.
-
->[!IMPORTANT]
-> When this is set, the MFA TOTP code is ALWAYS expected at the end of the password (e.g. `PASSWORD123456`). This is extracted from the password before authentication. If no token is entered, authentication will fail even if the password is incorrect even if MFA is not required because the last x characters of the password will be parsed out of the password (e.g. `PA` password and `SSWORD` for token).
 
 
-***Type:*** Boolean
-
-***Constraints:*** Must be `true` or `false`
-
-***Required:*** No
-
-***Default:*** `false`
-
-**config/mfa_token_length**
-
-The number of digits to expect in the MFA token that is appended to the password. By default, a 6-digit code is assumed. 
-
-***Type:*** Integer
-
-***Constraints:*** Must be an integer greater than zero
-
-***Required:*** No
-
-***Default:*** `6`
-
-
-##### Example
-
-The following example identity provider record configures the Cognito module to:
-* Use to the app client `353r6nqo4bi6baaaasdf123` that is associated with a user pool in `us-east-1`
-* Enable MFA with a 6-digit token
-
-
-```json
-{
-  "provider": {
-    "S": "cognito-pool"
-  },
-  "config": {
-      "mfa_token_length": {
-        "N": "6"
-      },
-      "cognito_client_id": {
-        "S": "353r6nqo4bi6baaaasdf123"
-      },
-      "cognito_user_pool_region": {
-        "S": "us-east-1"
-      },    
-      "mfa": {
-        "BOOL": true
-      }
-    }
-  },
-  "module": {
-    "S": "okta"
-  }
-}
-```
-
-#### Public Key
+### Public Key
 The Public Key module is used to perform authentication with public/private key pairs. The module itself *does not* perform this validation - it simply verifies that `PublicKeys` for the user are included in the response to the AWS Transfer Family service so that it can complete verification of the private key. There are no settings to configure in this module.
 
-##### DynamoDB Record Schema
+#### DynamoDB Record Schema
 ```json
 {
   "provider": {
@@ -1582,7 +1586,7 @@ The Public Key module is used to perform authentication with public/private key 
   }     
 }
 ```
-##### Parameters
+#### Parameters
 
 **provider**
 
@@ -1624,7 +1628,7 @@ Indicates that the identity provider supports handling public key authentication
 
 ***Required:*** Yes
 
-##### Example
+#### Example
 
 The following example configures the public key provider with a provider name `publickeys`. 
 
