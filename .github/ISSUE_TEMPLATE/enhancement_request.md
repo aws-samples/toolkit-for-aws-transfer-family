@@ -1,9 +1,8 @@
 ---
-name: Enhancement request
-about: Suggest an idea to enhance some existing feature
-title: '[Enhancement]: TITLE HERE'
+name: "Enhancement request"
+about: "Suggest an idea to enhance some existing feature"
+title: "[Enhancement]: TITLE HERE"
 labels: ["enhancement", "Needs Triage"]
-assignees: ''
 
 ---
 
