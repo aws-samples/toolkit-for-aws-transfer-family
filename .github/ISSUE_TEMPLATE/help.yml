@@ -1,6 +1,6 @@
 name: "Help and troubleshooting"
 description: "Create a request for help and troubleshooting."
-title: "[HELP] TITLE HERE"
+title: "[HELP]: <TITLE HERE>"
 labels: "help"
 
 body:
@@ -19,8 +19,8 @@ body:
       options:
         - Custom IdP Solution
         - Other
-      validations:
-        required: true
+    validations:
+      required: true
   - type: textarea
     attributes:
       label: Configuration information
