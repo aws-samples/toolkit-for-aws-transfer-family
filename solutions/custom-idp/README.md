@@ -40,13 +40,17 @@ To get started, review the [Solution Overview](#solution-overview), then followi
         - [DynamoDB Record Schema](#dynamodb-record-schema-3)
         - [Parameters](#parameters-3)
         - [Example](#example-2)
-      - [Public Key](#public-key)
+      - [Cognito](#cognito)
         - [DynamoDB Record Schema](#dynamodb-record-schema-4)
         - [Parameters](#parameters-4)
         - [Example](#example-3)
+      - [Public Key](#public-key)
+        - [DynamoDB Record Schema](#dynamodb-record-schema-5)
+        - [Parameters](#parameters-5)
+        - [Example](#example-4)
       - [Secrets Manager](#secrets-manager)
   - [AWS Transfer session settings inheritance](#aws-transfer-session-settings-inheritance)
-    - [Example](#example-4)
+    - [Example](#example-5)
   - [Modifying/updating solution parameters](#modifyingupdating-solution-parameters)
   - [Updating the solution](#updating-the-solution)
   - [Uninstall the solution](#uninstall-the-solution)
@@ -1404,6 +1408,150 @@ The following example identity provider record configures the Okta module to:
       "okta_redirect_uri": {
         "S": "callback:/awstransfer"
       },      
+      "mfa": {
+        "BOOL": true
+      }
+    }
+  },
+  "module": {
+    "S": "okta"
+  }
+}
+```
+
+
+#### Cognito
+
+The `cogntio` module supports authentication with a Cognito user pool. It supports password based authentication, and TOTP-based MFA. 
+
+>[!IMPORTANT]
+> * This module supports local Cognito users only. You cannot sign in a user with a federated IdP connected to Cognito. For more information, see [Things to know about Amazon Cognito user pools third-party sign-in](https://docs.aws.amazon.com/cognito/latest/developerguide/cognito-user-pools-identity-federation.html#cognito-user-pools-identity-federation-how-it-works-considerations) in the Cognito documentation. InitiateAuth and AdminInitiateAuth do not support federation.
+> * Currently, only Cognito's software authenticator MFA (e.g. Google Authenticator) is supported by this module. Cognito's SMS MFA is NOT supported.
+
+##### DynamoDB Record Schema
+```json
+{
+  "provider": {
+    "S": "[provider name]"
+  },
+  "config": {
+      "mfa_token_length": {
+        "N": "[token length]"
+      },
+      "cognito_client_id": {
+        "S": "[cognito client id]"
+      },
+      "cognito_user_pool_region": {
+        "S": "[cognito user pool region]"
+      },  
+      "mfa": {
+        "BOOL": [true or false]
+      }
+    }
+  },
+  "module": {
+    "S": "cognito"
+  }
+}
+```
+##### Parameters
+
+**provider**
+
+A name used for referencing this provider in the `users` table. This value is also used when users specify an identity provider during authentication (e.g. `username@provider`).
+
+***Type:*** String
+
+***Constraints:*** None
+
+***Required:*** Yes
+
+**module**
+
+The name of the Cognito module that will be loaded to perform authentication. **This should be set to `cognito`.**
+
+***Type:*** String
+
+***Constraints:*** None
+
+***Required:*** Yes
+
+**config/cognito_client_id**
+
+The Client ID of the Cognito user pool app client that will be used to perform authentication. The The user pool app client must be a public client. For more information, see the [Creating an app client](https://docs.aws.amazon.com/cognito/latest/developerguide/user-pool-settings-client-apps.html) in the AWS documentation.
+
+***Type:*** String
+
+***Constraints:*** Must be a valid Cognito app client client ID in a user pool.
+
+***Required:*** Yes
+
+**config/cognito_user_pool_region**
+
+The region the Cognito user pool is located in. This is used to ensure the correct Cognito regional endpoint is used for authentication. User pools are regional.
+
+***Type:*** String
+
+***Constraints:*** Must be a valid AWS region (e.g. `us-east-1`)
+
+***Required:*** No
+
+***Default:*** The region the custom identity provider Lambda is running in. 
+
+**config/mfa**
+
+When set to `true`, indicates Cognito is configured to require MFA. When enabled, users must enter their password plus the temporary one-time code when prompted for their password (e.g. `password123456`)
+
+>[!NOTE]
+> Currently, only TOTP-based MFA (e.g. Google Authenticator) is supported by this module. SMS is NOT supported.
+
+>[!IMPORTANT]
+> When this is set, the MFA TOTP code is ALWAYS expected at the end of the password (e.g. `PASSWORD123456`). This is extracted from the password before authentication. If no token is entered, authentication will fail even if the password is incorrect even if MFA is not required because the last x characters of the password will be parsed out of the password (e.g. `PA` password and `SSWORD` for token).
+
+
+***Type:*** Boolean
+
+***Constraints:*** Must be `true` or `false`
+
+***Required:*** No
+
+***Default:*** `false`
+
+**config/mfa_token_length**
+
+The number of digits to expect in the MFA token that is appended to the password. By default, a 6-digit code is assumed. 
+
+***Type:*** Integer
+
+***Constraints:*** Must be an integer greater than zero
+
+***Required:*** No
+
+***Default:*** `6`
+
+
+##### Example
+
+The following example identity provider record configures the Cognito module to:
+* Use to the app client `353r6nqo4bi6baaaasdf123` that is associated with a user pool in `us-east-1`
+* Enable MFA with a 6-digit token
+
+
+```json
+{
+  "provider": {
+    "S": "cognito-pool"
+  },
+  "config": {
+      "mfa_token_length": {
+        "N": "6"
+      },
+      "cognito_client_id": {
+        "S": "353r6nqo4bi6baaaasdf123"
+      },
+      "cognito_user_pool_region": {
+        "S": "us-east-1"
+      },    
       "mfa": {
         "BOOL": true
       }

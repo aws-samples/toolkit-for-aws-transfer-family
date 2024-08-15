@@ -4,7 +4,6 @@ from idp_modules import util
 from datetime import datetime, timezone
 
 from aws_lambda_powertools import Tracer
-from aws_lambda_powertools.utilities.typing import LambdaContext
 
 tracer = Tracer()
 

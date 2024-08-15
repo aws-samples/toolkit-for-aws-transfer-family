@@ -3,7 +3,6 @@ import json
 import logging
 from idp_modules import util
 from aws_lambda_powertools import Tracer
-from aws_lambda_powertools.utilities.typing import LambdaContext
 
 tracer = Tracer()
 

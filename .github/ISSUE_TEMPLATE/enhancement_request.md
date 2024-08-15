@@ -1,7 +1,7 @@
 ---
 name: "Enhancement request"
 about: "Suggest an idea to enhance some existing feature"
-title: "[Enhancement]: TITLE HERE"
+title: "[Enhancement]: <enhancement title>"
 labels: ["enhancement", "Needs Triage"]
 
 ---

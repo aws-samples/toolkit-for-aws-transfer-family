@@ -6,7 +6,6 @@ import re
 import urllib3
 from idp_modules import util
 from aws_lambda_powertools import Tracer
-from aws_lambda_powertools.utilities.typing import LambdaContext
 
 tracer = Tracer()
 
@@ -284,7 +283,7 @@ def handle_auth(
             f"MFA enabled, extracting token code from last {okta_mfa_token_length} characters of provided password."
         )
         mfa_token = password[-okta_mfa_token_length:]
-        password = password[:-6]
+        password = password[:-okta_mfa_token_length]
     else:
         mfa_token = None
 
@@ -303,7 +302,7 @@ def handle_auth(
         )
         if okta_app_client_id is None:
             raise OktaIdpModuleError(
-                f"The identity provider configuration contains attributes to resolve from Okta, but app_secret_arn was not configured. This MUST be set in order to retrieve the Okta application's client id and secret for querying user profile attributes. Please review documentation."
+                f"The identity provider configuration contains attributes to resolve from Okta, but okta_app_client_id is not in the identity_provider configuration. This MUST be set in order to retrieve the Okta application's client id and secret for querying user profile attributes. Please review documentation."
             )
         logger.info("Fetching Okta session cookie")
         session_cookie = okta_token_exchange_oauth(
