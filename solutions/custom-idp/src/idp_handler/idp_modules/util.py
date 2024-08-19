@@ -9,7 +9,6 @@ from botocore.exceptions import ClientError
 from enum import Enum
 
 from aws_lambda_powertools import Tracer
-from aws_lambda_powertools.utilities.typing import LambdaContext
 
 tracer = Tracer()
 
