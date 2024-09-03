@@ -645,6 +645,9 @@ Outputs:
   IdpHandlerFunction:
     Description: IDP Handler Arn
     Value: !GetAtt IdpHandlerFunction.Arn
+  IdpHandlerFunctionName:
+    Description: IDP Handler Function Name
+    Value: !Ref IdpHandlerFunction    
   IdpHandlerLogGroupUrl:
     Description: Link to IdpHandler Lambda logs.
     Value: !Sub https://${AWS::Region}.console.aws.amazon.com/cloudwatch/home?region=${AWS::Region}#logsV2:log-groups/log-group/$252Faws$252Flambda$252F${IdpHandlerFunction}
