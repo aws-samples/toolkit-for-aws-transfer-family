@@ -159,6 +159,7 @@ Before deploying the solution, you will need the following:
     | Parameter | Description | Value |
     | --- | --- | --- |
     | **Stack name** | **REQUIRED**. The name of the CloudFormation stack that will be created. The stack name is also prefixed to several resources that are created to allow the solution to be deployed multiple times in the same AWS account and region. | *your stack name, i.e. transferidp* |
+    | **UseVPC** | **REQUIRED**. When set to *`true`* the Lambda function will be attached to a VPC. If set to `false` the Lambda will be provisioned without a VPC and have outbound internet access. Default is `true`, as many IdPs require private connectivity via a VPC and/or communicating with IdPs via VPC is preferred. **When set to `true`, either `CreateVPC` must be set to `true` or `VPCId`, `Subnets`, and `SecurityGroups` must be specified**| `true` or `false`|    
     | **CreateVPC** | **REQUIRED**. Set to *`true`* if you you would like the solution to create a VPC for you, otherwise *`false`* | `true` or `false`|
     | **VPCCIDR** | **CONDITIONALLY REQUIRED**. Must be set if `CreateVPC` is `true`. The CIDR to use for when creating a new VPC. The CIDR should be at least a /24 and will be divided evenly across 4 subnets. Required if CreateVPC is set.  | `true` or `false`|   
     | **VPCId** | **CONDITIONALLY REQUIRED**. Must be set if `CreateVPC` is `false`. The ID of the VPC to deploy the custom IDP solution into. The VPC specified should have network connectivity to any IdPs that will used for authentication.  | *A VPC ID, i.e. `vpc-abc123def456`* |    
@@ -1930,8 +1931,8 @@ The solution maintainers periodically apply enhancements and bugfixes to the sol
 
     ![CloudShell session running](screenshots/ss-deploy-01-cloudshell.png)
     
-    > [!IMPORTANT]  
-    > Make sure you are running CloudShell in the same region as where the solution was deployed.
+> [!IMPORTANT]  
+> Make sure you are running CloudShell in the same region as where the solution was deployed.
 
 2. Clone the latest version of the solution repository into your environment:
     ```bash
