@@ -661,7 +661,7 @@ Outputs:
       !If [CreateVPC, !Ref SecurityGroup,  !Join [",", !Ref SecurityGroups]] 
   DDBUsersTableName:
     Description: DDB Users Table Name
-    Value: !Ref USERS_TABLE
+    Value: !Sub "${AWS::StackName}_users"
   DDBIdentityProvidersTableName:
     Description: DDB Identity Providers Table Name
-    Value: !Ref IDENTITY_PROVIDERS_TABLE
+    Value: !Sub ${AWS::StackName}_identity_providers
