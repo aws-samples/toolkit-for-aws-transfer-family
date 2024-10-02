@@ -1,0 +1,85 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'This template deploys the full stack of the solution including Transfer Server stack, custom IdP stack'
+Parameters:
+  UserNameDelimiter:
+    Description: Delimiter used for username and identity provider. Only '@' is supported due to validation checks that AWS Transfer Family performs on the username. 
+    Type: String
+    Default: '@'
+    AllowedValues:
+      - '@'
+    AllowedPattern: '[@\\\/\-]'
+    MaxLength: 1
+    MinLength: 1
+
+  LogLevel:
+    Description: 'Log level to configure for Lambda authentication function. Set to DEBUG for verbose logging to be used for troubleshooting. WARNING: This may result in sensitive information being put into logs.'
+    Type: String
+    Default: 'INFO'
+    AllowedValues:
+         - INFO
+         - DEBUG
+
+  ProvisionApi:
+    Description: 'When set, provisions an API Gateway REST API. Enable this if you would like AWS Transfer to use a REST-based custom IdP instead of directly invoking the Lambda function.'
+    Type: String
+    Default: 'false'
+    AllowedValues:
+      - 'true'
+      - 'false'
+
+  EnableTracing:
+    Description: When set, enables X-ray tracing on various components
+    Type: String
+    Default: 'false'
+    AllowedValues:
+    - 'true'
+    - 'false'
+  
+  UsersTableName:
+    Description: The name of an existing DynamoDB table to use for Users. If blank, a new table will be created.
+    Type: String
+    Default: ''
+
+  IdentityProvidersTableName:
+    Description: The name of an existing DynamoDB table to use for Identity Providers. If blank, a new table will be created.
+    Type: String
+    Default: ''
+
+Resources:
+  CustomIdP:
+      Type: 'AWS::CloudFormation::Stack'
+      DeletionPolicy: Delete
+      Properties:
+        TemplateURL: ../../custom-idp.yaml
+        Parameters:
+          CreateVPC: 'true'
+          UserNameDelimiter: !Ref UserNameDelimiter
+          LogLevel: !Ref LogLevel
+          ProvisionApi: !Ref ProvisionApi
+          EnableTracing: !Ref EnableTracing
+          UsersTableName: !Ref UsersTableName
+          IdentityProvidersTableName: !Ref IdentityProvidersTableName
+  TransferServer:
+      Type: 'AWS::CloudFormation::Stack'
+      DeletionPolicy: Delete
+      Properties:
+        TemplateURL: ../transferserver/transfer-server-template.yaml
+        Parameters:
+          AuthorizationFunctionArn: !GetAtt CustomIdP.Outputs.IdpHandlerFunction
+          BucketName: !Sub ${AWS::StackName}
+Outputs:
+  TransferUserRole:
+    Description: Default Transfer User Role
+    Value: !GetAtt TransferServer.Outputs.SFTPUserRole
+  SFTPServerS3Bucket:  
+    Description: S3 Bucket Name
+    Value: !GetAtt TransferServer.Outputs.SFTPServerS3Bucket
+  TransferServerEndpoint:
+    Description: Transfer Server Endpoint
+    Value: !GetAtt TransferServer.Outputs.TransferServerEndpoint
+  DDBUsersTableName:
+    Description: DDB Users Table Name
+    Value: !GetAtt CustomIdP.Outputs.DDBUsersTableName
+  DDBIdentityProvidersTableName:
+    Description: DDB Identity Providers Table Name
+    Value: !GetAtt CustomIdP.Outputs.DDBIdentityProvidersTableName
