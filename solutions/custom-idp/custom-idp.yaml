@@ -3,6 +3,11 @@ Transform: AWS::Serverless-2016-10-31
 Description: 'This template deploys custom IdP including VPC, Subnets, Security Groups, IdP Handler Lambda and API Gateway (if selected)'
 
 Parameters:
+  UseVPC:
+    Description: 'When set, the custom IdP Lambda will be attached to a VPC. VPC attachment is typically required when connecting to a private IdP such as Active Directory or LDAP. When set to true, either CreateVPC or VpcId, Subnets, and SecurityGroups must be set. Default is true.'
+    Type: String
+    AllowedValues: ['true', 'false']
+    Default: 'true'
   CreateVPC:
     Description: 'When set, creates a pre-configured VPC for the custom IDP solution and uses it for the custom IdP Lambda function to simplify deployment. The VPC will contain public/private subnets for two AZs, two NAT Gateways, a Security Group, and a DynamoDB Gateway endpoint. If this is set to false, VPC, subnet, and security group information must be provided.'
     Type: String
@@ -35,14 +40,11 @@ Parameters:
     AllowedValues: ['true', 'false']
     Default: 'false'
   UserNameDelimiter:
-    Description: Delimiter for user name
+    Description: Delimiter used for username and identity provider. DEPRECATED - Only '@' is supported due to validation checks that AWS Transfer Family performs on the username field. 
     Type: String
-    Default: '$'
+    Default: '@'
     AllowedValues:
       - '@'
-      - '$'
-      - '\\'
-      - '/'
     MaxLength: 1
     MinLength: 1
   LogLevel:
@@ -83,6 +85,7 @@ Metadata:
         - Label: 
             default: Network Configuration
           Parameters:
+            - UseVPC
             - CreateVPC
             - VPCCIDR
             - VpcId
@@ -103,7 +106,8 @@ Metadata:
             - IdentityProvidersTableName
 
 Conditions:
-  CreateVPC: !Equals [!Ref CreateVPC, 'true']
+  UseVPC: !Equals [!Ref UseVPC, 'true']
+  CreateVPC: !And [!Equals [!Ref UseVPC, 'true'], !Equals [!Ref CreateVPC, 'true']]
   SecretsManagerPermission: !Equals [!Ref SecretsManagerPermissions, 'true']
   ApiEnabled: !Equals [!Ref ProvisionApi, 'true']
   TracingEnabled: !Equals [!Ref EnableTracing, 'true']
@@ -112,13 +116,16 @@ Conditions:
 
 Globals:
   Function:
-    Timeout: 30
+    Timeout: 45
     MemorySize: 1024
     Tracing:
       Fn::If:
       - TracingEnabled
       - Active
       - Ref: AWS::NoValue
+    Environment:
+      Variables:
+        POWERTOOLS_SERVICE_NAME: !Sub ${AWS::StackName}
   Api:
     TracingEnabled: true
 
@@ -152,8 +159,11 @@ Resources:
           LOGLEVEL: !Ref LogLevel
           AWS_XRAY_TRACING_NAME: !Sub ${AWS::StackName}
       VpcConfig:
-        SubnetIds: !If [CreateVPC, [!Ref PrivateSubnet1,!Ref PrivateSubnet2], !Ref Subnets]
-        SecurityGroupIds: !If [CreateVPC, [!Ref SecurityGroup], !Ref SecurityGroups]
+        !If
+          - UseVPC       
+          - SubnetIds: !If [CreateVPC, [!Ref PrivateSubnet1,!Ref PrivateSubnet2], !Ref Subnets]
+            SecurityGroupIds: !If [CreateVPC, [!Ref SecurityGroup], !Ref SecurityGroups]
+          - Ref: AWS::NoValue
       Architectures:
       - x86_64
       Policies:
@@ -216,7 +226,7 @@ Resources:
   ApiCloudWatchLogsRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub ${AWS::StackName}-api-cloudwatch-role
+      RoleName: !Sub ${AWS::StackName}-${AWS::Region}-api-cloudwatch-role
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
@@ -371,7 +381,7 @@ Resources:
     Type: AWS::IAM::Role
     Condition: ApiEnabled
     Properties:
-      RoleName: !Sub "${AWS::StackName}_transfer-api-role"
+      RoleName: !Sub "${AWS::StackName}-${AWS::Region}-transfer-api-role"
       AssumeRolePolicyDocument:    
         Version: '2012-10-17'
         Statement:
@@ -635,6 +645,9 @@ Outputs:
   IdpHandlerFunction:
     Description: IDP Handler Arn
     Value: !GetAtt IdpHandlerFunction.Arn
+  IdpHandlerFunctionName:
+    Description: IDP Handler Function Name
+    Value: !Ref IdpHandlerFunction    
   IdpHandlerLogGroupUrl:
     Description: Link to IdpHandler Lambda logs.
     Value: !Sub https://${AWS::Region}.console.aws.amazon.com/cloudwatch/home?region=${AWS::Region}#logsV2:log-groups/log-group/$252Faws$252Flambda$252F${IdpHandlerFunction}
@@ -650,18 +663,12 @@ Outputs:
   VPC:
     Description: The VPC that is used with the custom IdP solution.
     Value:
-      !If [CreateVPC, !Ref VPC, !Ref VpcId]   
+      !If [UseVPC, !If [CreateVPC, !Ref VPC, !Ref VpcId], '']
   SubnetList:
     Description: The subnets used by the Lambda function in the custom IdP solution.
     Value:
-      !If [CreateVPC, !Join [",", [!Ref PrivateSubnet1, !Ref PrivateSubnet2]], !Join [",", !Ref Subnets]]         
+      !If [UseVPC, !If [CreateVPC, !Join [",", [!Ref PrivateSubnet1, !Ref PrivateSubnet2]], !Join [",", !Ref Subnets]], '']
   SecurityGroupsList:
     Description: The VPC subnets attached to the Lambda function in the custom IdP solution.
     Value:
-      !If [CreateVPC, !Ref SecurityGroup,  !Join [",", !Ref SecurityGroups]] 
-  DDBUsersTableName:
-    Description: DDB Users Table Name
-    Value: !Sub "${AWS::StackName}_users"
-  DDBIdentityProvidersTableName:
-    Description: DDB Identity Providers Table Name
-    Value: !Sub ${AWS::StackName}_identity_providers
+      !If [UseVPC, !If [CreateVPC, !Ref SecurityGroup,  !Join [",", !Ref SecurityGroups]], '']
