@@ -5,7 +5,10 @@ import urllib
 import re
 import urllib3
 from idp_modules import util
+import msal
+
 from aws_lambda_powertools import Tracer
+
 
 tracer = Tracer()
 
@@ -22,6 +25,8 @@ class AzureIdpModuleError(util.IdpModuleError):
     """Used to raise module-specific exceptions"""
     pass
 
+
+app = msal.
 
 @tracer.capture_method
 def okta_authenticate(url, username, password, mfa_token=None):
