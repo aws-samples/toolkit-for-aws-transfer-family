@@ -871,7 +871,10 @@ The following is an example of a `user` record that uses the `argon2` identity p
             },
             "HomeDirectoryType": {
                 "S": "LOGICAL"
-            }
+            },
+          "Role": {
+            "S": "arn:aws:iam::[AWS Account Id]:role/[Role Name]"
+          }            
         }
     },
     "ipv4_allow_list": {
