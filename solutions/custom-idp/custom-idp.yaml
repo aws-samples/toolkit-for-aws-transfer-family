@@ -226,7 +226,7 @@ Resources:
   ApiCloudWatchLogsRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub ${AWS::StackName}-${AWS::Region}-api-cloudwatch-role
+      RoleName: !Sub ${AWS::StackName}-api-cloudwatch-role
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
@@ -381,7 +381,7 @@ Resources:
     Type: AWS::IAM::Role
     Condition: ApiEnabled
     Properties:
-      RoleName: !Sub "${AWS::StackName}-${AWS::Region}-transfer-api-role"
+      RoleName: !Sub "${AWS::StackName}-transfer-api-role"
       AssumeRolePolicyDocument:    
         Version: '2012-10-17'
         Statement:
