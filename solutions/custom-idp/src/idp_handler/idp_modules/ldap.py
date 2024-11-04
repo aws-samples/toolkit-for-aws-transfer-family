@@ -79,8 +79,16 @@ def handle_auth(
     )
     ldap_ssl_ca = None
 
+    ldap_allowed_groups = identity_provider_config.get("ldap_allowed_groups", None)
+
+    # Add userAccountControl to list of attributes to retrieve from LDAP, to check account Status
     if ldap_service_account_secret_arn:
         ldap_attributes["userAccountControl"] = "userAccountControl"
+    
+    # Add memberOf and distinguishedName to list of attributes to retrieve from LDAP for retrieving group memberships
+    if ldap_allowed_groups:
+        ldap_attributes["memberOf"] = "memberOf"
+        ldap_attributes["distinguishedName"] = "distinguishedName"
 
     ldap_attribute_query_list = []
     for attribute in ldap_attributes:
@@ -179,7 +187,7 @@ def handle_auth(
             f"Attempting to retrieve LDAP attributes {ldap_attribute_query_list} for user {parsed_username} on base {ldap_search_base}"
         )
         ldap_connection.search(
-            search_base=ldap_search_base,
+            search_base=ldap_search_base,            
             search_filter=f"(|(&(objectClass=user)(uid={parsed_username}))(&(objectCategory=person)(sAMAccountName={parsed_username})))",
             search_scope=ldap3.SUBTREE,
             dereference_aliases=ldap3.DEREF_NEVER,
@@ -233,7 +241,49 @@ def handle_auth(
             raise LdapIdpModuleError(
                 f"Account for user {parsed_username} is locked. Failing authentication."
             )
-
+    
+    if ldap_allowed_groups is not None:
+        allowed_group = False
+        logger.info(f"Checking if user is in allowed groups")
+        member_of_list = ldap_resolved_attributes.get("memberOf", [])
+        logger.debug (f"memberOf: {member_of_list}")
+        for group in ldap_allowed_groups:
+            if group in member_of_list:
+                logger.info(f"User {parsed_username} is a member of the allowed group {group}.")
+                allowed_group = True
+            else:
+                logger.debug(f"User {parsed_username} is not a member of the allowed group {group}.")
+        
+        if not allowed_group:
+            logger.info(f"User {parsed_username} is not a direct member of any of the allowed groups {ldap_allowed_groups}. Checking nested groups in AD-based LDAP.")                
+            user_dn = ldap_resolved_attributes.get("distinguishedName", None)
+            logger.debug(f"Attempting to retrieve nested group memberships for user {user_dn}")
+            ldap_connection.search(
+                search_base=ldap_search_base,
+                search_filter=f"(&(objectClass=group)(member:1.2.840.113556.1.4.1941:={user_dn}))",
+                search_scope=ldap3.SUBTREE,
+                dereference_aliases=ldap3.DEREF_NEVER,
+            )
+            logger.debug(f"LDAP response: {ldap_connection.response}")
+            ad_groups = [
+                entry.get('dn', '')
+                for entry in ldap_connection.response
+                if entry["type"] == "searchResEntry"
+            ]
+            logger.debug(f"Groups {ad_groups}")
+            allowed_group = False 
+            for group in ldap_allowed_groups:
+                if group in ad_groups:
+                    logger.info(f"User {parsed_username} is a member of the allowed group {group}.")
+                    allowed_group = True 
+                else:
+                    logger.debug(f"User {parsed_username} is not a member of the allowed group {group}.")
+            
+        if not allowed_group:
+            raise LdapIdpModuleError(
+                f"User {parsed_username} is not a member of any group in ldap_allowed_groups."
+            )
+        
     if "Role" in ldap_attributes:
         if not ldap_resolved_attributes["Role"] is None:
             logger.info(
