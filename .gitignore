@@ -2,11 +2,7 @@
 solutions/custom-idp/Pipfile.lock
 solutions/custom-idp/src/handler_layer**
 .aws-sam
-<<<<<<< HEAD
 .$*
-=======
-.$
->>>>>>> main
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
