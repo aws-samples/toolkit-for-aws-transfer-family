@@ -1,0 +1,85 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Insert provider and users item into DynamoDB tables which are created by Transfer Toolkit
+
+Parameters:
+  IdPTableName:
+    Type: String
+    Default: STACK-NAME_identity_providers
+    Description: Name of the DynamoDB table to insert the item into
+  Provider:
+    Type: String
+    Default: domain.name
+    Description: Provider name
+  OktaDomain:
+    Type: String
+    Default: dev-11111111.okta.com
+    Description: Okta domain
+  MFA:
+    Type: String
+    Default: 'true'
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Description: Whether MFA is enabled or not
+  Module:
+    Type: String
+    Default: okta
+    Description: Module name
+  UsersTableName:
+    Type: String
+    Default: STACK-NAME_users
+    Description: Name of the DynamoDB table to insert the item into
+  User:
+    Type: String
+    Description: Okta User name excluding domain name. if username is john@amazon.com, input john.
+  SftpRole:
+    Type: String
+    Description: IAM role ARN to access S3 , arn:aws:iam::[AWS Account Id]:role/[Role Name]
+  HomeDirectoryDetails:
+    Type: String
+    Description: >-
+      Home directory details (Entry and Target in JSON format).
+      Example: {
+        "Entry": "/",
+        "Target": "/[bucketname]"
+      }
+  HomeDirectoryType:
+    Type: String
+    Default: LOGICAL
+    Description: Home directory type
+
+Resources:
+  DDBIdentityProviderTable:
+      Type: 'AWS::CloudFormation::Stack'
+      DeletionPolicy: Delete
+      Properties:
+        TemplateURL: ./toolkit_okta_ddb_identity_providers.yaml
+        Parameters:
+          IdPTableName: !Ref IdPTableName
+          Provider: !Ref Provider
+          OktaDomain: !Ref OktaDomain
+          MFA: !Ref MFA
+          Module: !Ref Module
+  DDBUsersTable:
+      Type: 'AWS::CloudFormation::Stack'
+      DeletionPolicy: Delete
+      Properties:
+        TemplateURL: ./toolkit_okta_ddb_users.yaml
+        Parameters:
+          UsersTableName: !Ref UsersTableName
+          User: !Ref User
+          IdentityProviderKey: !Ref Provider
+          SftpRole: !Ref SftpRole
+          HomeDirectoryDetails: !Ref HomeDirectoryDetails
+          HomeDirectoryType: !Ref HomeDirectoryType
+
+Outputs:
+  IdPTableName:
+    Description: Identity Provider Table of DynamoDB 
+    Value: !Ref IdPTableName
+  UsersTableName:
+    Description: Users Table of DynamoDB 
+    Value: !Ref UsersTableName
+  User:
+    Description: Okta user name 
+    Value: !Ref User

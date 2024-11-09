@@ -1,0 +1,136 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Insert provider item into DynamoDB table of Transfer Toolkit
+
+Parameters:
+  IdPTableName:
+    Type: String
+    Default: identity_providers
+    Description: Name of the DynamoDB table to insert the item into
+  Provider:
+    Type: String
+    Default: domain.name
+    Description: Provider name
+  OktaDomain:
+    Type: String
+    Default: dev-11111111.okta.com
+    Description: Okta domain
+  MFA:
+    Type: String
+    Default: 'true'
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Description: Whether MFA is enabled or not
+  Module:
+    Type: String
+    Default: okta
+    Description: Module name
+
+Resources:
+  InsertProviderItem:
+    Type: AWS::CloudFormation::CustomResource
+    Properties:
+      ServiceToken: !GetAtt CustomResourceLambdaFunction.Arn
+      IdPTableName: !Ref IdPTableName
+      Provider: !Ref Provider
+      OktaDomain: !Ref OktaDomain
+      MFA: !Ref MFA
+      Module: !Ref Module
+
+  CustomResourceLambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          from urllib.request import build_opener, HTTPHandler, Request
+
+          def lambda_handler(event, context):
+              dynamodb = boto3.resource('dynamodb')
+              table_name = event['ResourceProperties']['IdPTableName']
+              table = dynamodb.Table(table_name)
+
+              mfa = event['ResourceProperties']['MFA'].lower() == 'true'
+
+              item = {
+                  'provider': event['ResourceProperties']['Provider'],
+                  'config': {
+                      'mfa': mfa,
+                      'okta_domain': event['ResourceProperties']['OktaDomain']
+                  },
+                  'module': event['ResourceProperties']['Module']
+              }
+
+              if event['RequestType'] == 'Create':
+                  table.put_item(Item=item)
+                  response_data = {
+                      'Status': 'SUCCESS',
+                      'PhysicalResourceId': f"DynamoDBItem-{event['LogicalResourceId']}",
+                      'StackId': event['StackId'],
+                      'RequestId': event['RequestId'],
+                      'LogicalResourceId': event['LogicalResourceId']
+                  }
+                  send_response(event, context, response_data)
+              elif event['RequestType'] == 'Delete':
+                  # You can add logic to delete the item here if needed
+                  response_data = {
+                      'Status': 'SUCCESS',
+                      'PhysicalResourceId': f"DynamoDBItem-{event['LogicalResourceId']}",
+                      'StackId': event['StackId'],
+                      'RequestId': event['RequestId'],
+                      'LogicalResourceId': event['LogicalResourceId']
+                  }
+                  send_response(event, context, response_data)
+
+          def send_response(event, context, response_data):
+              response_body = json.dumps({
+                  "Status": response_data['Status'],
+                  "Reason": "CloudFormation Success",
+                  "PhysicalResourceId": response_data['PhysicalResourceId'],
+                  "StackId": response_data['StackId'],
+                  "RequestId": response_data['RequestId'],
+                  "LogicalResourceId": response_data['LogicalResourceId'],
+                  "Data": {}
+              })
+              response_msg = response_body.encode('utf-8')
+              opener = build_opener(HTTPHandler)
+              request = Request(event['ResponseURL'], data=response_msg)
+              request.add_header('Content-Type', '')
+              request.add_header('Content-Length', len(response_msg))
+              request.get_method = lambda: 'PUT'
+              response = opener.open(request)
+
+      Handler: index.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Runtime: python3.9
+      Timeout: 30
+
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+      Policies:
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'dynamodb:PutItem'
+                Resource: !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${IdPTableName}'
+
+Outputs:
+  InsertedItemId:
+    Value: !Ref InsertProviderItem
+    Description: ID of the inserted DynamoDB item
