@@ -20,11 +20,12 @@ secret_cache = {}
 
 @tracer.capture_method
 def entra_authenticate(client_id, client_secret, authority_url, username, password, scopes):
-    app = msal.PublicClientApplication(
+    app = msal.ClientApplication(
         client_id=client_id, 
         client_credential=client_secret,
         authority=authority_url
     )
+    logger.debug(f"app: {app}")
 
     result = app.acquire_token_by_username_password(
         username=username,
@@ -55,6 +56,24 @@ def entra_get_user(access_token):
         raise EntraIdpModuleError(f"Error retrieving user info: HTTP status code {response.status}")
 
     return json.loads(response.read().decode())
+@tracer.capture_method
+def entra_fetch_user_custom_security_attributes(access_token):
+    graph_url = "https://graph.microsoft.com/v1.0/me?$select=customSecurityAttributes"
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Content-Type": "application/json"
+    }
+
+    response = urllib.request.urlopen(urllib.request.Request(graph_url, headers=headers))
+
+    if response.status != 200:
+        logger.error(f"Error retrieving user info: HTTP status code {response.status}")
+        raise EntraIdpModuleError(f"Error retrieving user info: HTTP status code {response.status}")
+
+    security_attributes = json.loads(response.read().decode())
+
+    logger.debug(f"customSecurityAttributes: {security_attributes}")
+    return security_attributes
 
 @tracer.capture_method
 def handle_auth(event, parsed_username, user_record, identity_provider_record, response_data, authn_method):
@@ -73,7 +92,7 @@ def handle_auth(event, parsed_username, user_record, identity_provider_record, r
     scopes = entra_config.get("scopes", ["https://graph.microsoft.com/.default"])
     entra_attributes = entra_config.get("attributes", {})
     entra_ignore_missing_attributes = entra_config.get("ignore_missing_attributes", False)
-    
+    entra_fetch_custom_security_attributes = entra_config.get("fetch_custom_security_attributes", False)
 
     password = event["password"]
 
@@ -95,6 +114,9 @@ def handle_auth(event, parsed_username, user_record, identity_provider_record, r
         logger.info("Fetching user profile")
         entra_user_profile = entra_get_user(access_token)
         logger.debug(f"user profile: {entra_user_profile}")
+        if entra_fetch_custom_security_attributes:
+            logger.info("Fetching user custom security attributes")
+            entra_user_profile["customSecurityAttributes"] = entra_fetch_user_custom_security_attributes(access_token)
 
         logger.info(f"Resolving mapped attributes")
         entra_resolved_attributes = {}
