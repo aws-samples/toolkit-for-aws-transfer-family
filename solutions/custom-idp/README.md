@@ -1049,7 +1049,11 @@ The following example identity provider record configures the Cognito module to:
 
 ### Microsoft Entra ID
 
-The `entra` module supports authentication with Microsoft Entra ID (formerly Azure AD). It can optionally retrieve user profile attributes and map them to session settings such as `Uid`, `Gid`, `Role`, and `Policy`.
+The `entra` module supports authentication with Microsoft Entra ID (formerly Azure AD).
+
+>[!IMPORTANT]
+> * The Entra ID module does NOT support MFA-based authentication. This is a documented limitation with [Resource Owner Password Credential (ROPC) flows in Entra ID](https://learn.microsoft.com/en-us/entra/identity-platform/v2-oauth-ropc)
+> * Additionally, only Entra tenants are supported (not personal accounts). Hybrid identity federation is also not supported.
 
 #### DynamoDB Record Schema
 ```json
@@ -1059,25 +1063,6 @@ The `entra` module supports authentication with Microsoft Entra ID (formerly Azu
   },
   "config": {
     "M": {
-      "attributes": {
-        "M": {
-          "Gid": {
-            "S": "[Entra ID profile attribute name]"
-          },
-          "Uid": {
-            "S": "[Entra ID attribute name]"
-          },          
-          "Role": {
-            "S": "[Entra ID attribute name]"
-          },
-          "Policy": {
-            "S": "[Entra ID attribute name]"
-          }
-        }
-      },
-      "ignore_missing_attributes": {
-        "BOOL": [true or false]
-      },
       "client_id": {
         "S": "[Entra ID application client ID]"
       },
@@ -1161,69 +1146,11 @@ The authority URL for the Entra ID tenant. This is typically in the format `http
 
 ***Default:*** `https://login.microsoftonline.com/organizations`
 
-**config/scopes**
-
-A list of scopes to request during authentication. These determine the level of access to the Microsoft Graph API.
-
-***Type:*** List of Strings
-
-***Constraints:*** Must be valid Microsoft Graph API scopes.
-
-***Required:*** No
-
-***Default:*** `["https://graph.microsoft.com/.default"]`
-
-**config/attributes**
-
-An optional key/value map of AWS Transfer user attributes and the corresponding Entra ID user profile attributes that should be retrieved and used for them.
-
-For example, if you wish to pass a `Uid` and `Gid` from Entra ID to AWS Transfer to use in `PosixProfile` and the values are stored in `uid` and `gid` attributes in the Entra ID user's profile, the entry would be:
-```json
-"attributes": {
-  "M": {
-      "Gid": {
-      "S": "gid"
-      },
-      "Uid": {
-      "S": "uid"
-      }
-  }
-}
-```
-> [!NOTE]  
-> Any attributes returned will override corresponding values that have been specified in the user's record from the `users` table. 
-
-***Type:*** Map
-
-***Constraints:*** Only attribute keys `Gid`, `Uid`, `Policy`, and `Role` are supported.
-
-***Required:*** No
-
-***Default:*** *none*
-
-**config/ignore_missing_attributes**
-
-When set to `true`, any Entra ID user profile attributes that return no value in the `attributes` map will be ignored. Otherwise, the authentication is considered a failure.
-
-When enabled and the value is missing, any corresponding values that have been specified in the user's record from the `users` table will be used. 
-
-> [!NOTE]  
-> It is recommended this be set to `false`, since missing or empty attributes could indicate the user's Entra ID profile has not been correctly configured and an empty attribute such as `Policy` could provide less restrictive access than desired. 
-
-***Type:*** Boolean
-
-***Constraints:*** Must be `true` or `false`
-
-***Required:*** No
-
-***Default:*** `false`
-
 #### Example
 
 The following example identity provider record configures the Entra ID module to:
 * Use the specified client ID and secret for authentication
 * Use a custom authority URL
-* Retrieve Gid, Uid, Role, and Policy attributes from Entra ID user profile attributes
 
 ```json
 {
@@ -1232,25 +1159,6 @@ The following example identity provider record configures the Entra ID module to
   },
   "config": {
     "M": {
-      "attributes": {
-        "M": {
-          "Gid": {
-            "S": "gid"
-          },
-          "Uid": {
-            "S": "uid"
-          },          
-          "Role": {
-            "S": "awsRole"
-          },
-          "Policy": {
-            "S": "sessionPolicy"
-          }
-        }
-      },
-      "ignore_missing_attributes": {
-        "BOOL": false
-      },
       "client_id": {
         "S": "12345678-1234-1234-1234-123456789012"
       },
@@ -1259,13 +1167,6 @@ The following example identity provider record configures the Entra ID module to
       },
       "authority_url": {
         "S": "https://login.microsoftonline.com/tenant-id"
-      },
-      "scopes": {
-        "L": [
-          {
-            "S": "https://graph.microsoft.com/.default"
-          }
-        ]
       }
     }
   },

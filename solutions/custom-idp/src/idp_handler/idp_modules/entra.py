@@ -42,40 +42,6 @@ def entra_authenticate(client_id, client_secret, authority_url, username, passwo
     return result
 
 @tracer.capture_method
-def entra_get_user(access_token):
-    graph_url = "https://graph.microsoft.com/v1.0/me"
-    headers = {
-        "Authorization": f"Bearer {access_token}",
-        "Content-Type": "application/json"
-    }
-
-    response = urllib.request.urlopen(urllib.request.Request(graph_url, headers=headers))
-    
-    if response.status != 200:
-        logger.error(f"Error retrieving user info: HTTP status code {response.status}")
-        raise EntraIdpModuleError(f"Error retrieving user info: HTTP status code {response.status}")
-
-    return json.loads(response.read().decode())
-@tracer.capture_method
-def entra_fetch_user_custom_security_attributes(access_token):
-    graph_url = "https://graph.microsoft.com/v1.0/me?$select=customSecurityAttributes"
-    headers = {
-        "Authorization": f"Bearer {access_token}",
-        "Content-Type": "application/json"
-    }
-
-    response = urllib.request.urlopen(urllib.request.Request(graph_url, headers=headers))
-
-    if response.status != 200:
-        logger.error(f"Error retrieving user info: HTTP status code {response.status}")
-        raise EntraIdpModuleError(f"Error retrieving user info: HTTP status code {response.status}")
-
-    security_attributes = json.loads(response.read().decode())
-
-    logger.debug(f"customSecurityAttributes: {security_attributes}")
-    return security_attributes
-
-@tracer.capture_method
 def handle_auth(event, parsed_username, user_record, identity_provider_record, response_data, authn_method):
     logger.debug(f"User record: {user_record}")
 
@@ -90,10 +56,6 @@ def handle_auth(event, parsed_username, user_record, identity_provider_record, r
     entra_authority_url = entra_config.get("authority_url", "https://login.microsoftonline.com/organizations")
 
     scopes = entra_config.get("scopes", ["https://graph.microsoft.com/.default"])
-    entra_attributes = entra_config.get("attributes", {})
-    entra_ignore_missing_attributes = entra_config.get("ignore_missing_attributes", False)
-    entra_fetch_custom_security_attributes = entra_config.get("fetch_custom_security_attributes", False)
-
     password = event["password"]
 
     entra_app_secret = util.fetch_secret_cache(secret_cache, entra_app_secret_arn)
@@ -107,54 +69,10 @@ def handle_auth(event, parsed_username, user_record, identity_provider_record, r
         password=password, 
         scopes=scopes
     )
-    logger.info(f"Authentication of {parsed_username} was successful")
-    access_token = auth_result["access_token"]
-
-    if entra_attributes:
-        logger.info("Fetching user profile")
-        entra_user_profile = entra_get_user(access_token)
-        logger.debug(f"user profile: {entra_user_profile}")
-        if entra_fetch_custom_security_attributes:
-            logger.info("Fetching user custom security attributes")
-            entra_user_profile["customSecurityAttributes"] = entra_fetch_user_custom_security_attributes(access_token)
-
-        logger.info(f"Resolving mapped attributes")
-        entra_resolved_attributes = {}
-        for attribute in entra_attributes:
-            value = entra_user_profile.get(entra_attributes[attribute], None)
-            if value is not None and (isinstance(value, int) or len(value) > 0):
-                entra_resolved_attributes[attribute] = value
-            else:
-                entra_resolved_attributes[attribute] = None
-        logger.debug(f"Resolved Entra user profile attributes: {entra_resolved_attributes}")
-
-        if "Role" in entra_attributes:
-            if entra_resolved_attributes["Role"] is not None:
-                logger.info(f"Applying Role {entra_resolved_attributes['Role']} from Entra user profile attributes")
-                response_data["Role"] = entra_resolved_attributes["Role"]
-            elif entra_ignore_missing_attributes:
-                logger.warning(f"Entra user profile attribute '{entra_attributes['Role']}' for 'Role' was empty or missing. Skipping.")
-            else:
-                raise EntraIdpModuleError(f"Entra user profile attribute '{entra_attributes['Role']}' for property 'Role' was empty or missing. Enable debug logging and check Graph API response. To ignore, use the ignore_missing_attributes setting in the identity provider config.")
-
-        if "Policy" in entra_attributes:
-            if entra_resolved_attributes["Policy"] is not None:
-                logger.info("Applying Policy from Entra user profile attributes")
-                response_data["Policy"] = entra_resolved_attributes["Policy"]
-            elif entra_ignore_missing_attributes:
-                logger.warning(f"Entra user profile attribute '{entra_attributes['Policy']}' for 'Policy' was empty or missing. Skipping.")
-            else:
-                raise EntraIdpModuleError(f"Entra user profile attribute '{entra_attributes['Policy']}' for property 'Policy' was empty or missing. Enable debug logging and check Graph API response. To ignore, use the ignore_missing_attributes setting in the identity provider config.")
-
-        if "Uid" in entra_attributes and "Gid" in entra_attributes:
-            if entra_resolved_attributes["Uid"] is not None and entra_resolved_attributes["Gid"] is not None:
-                logger.info(f"Applying PosixProfile {entra_resolved_attributes['Uid']},{entra_resolved_attributes['Gid']} from Entra user profile attributes")
-                response_data.setdefault("PosixProfile", {})
-                response_data["PosixProfile"]["Uid"] = entra_resolved_attributes["Uid"]
-                response_data["PosixProfile"]["Gid"] = entra_resolved_attributes["Gid"]
-            elif entra_ignore_missing_attributes:
-                logger.warning(f"Entra user profile attributes '{entra_attributes['Uid']}' for 'Uid' and/or '{entra_attributes['Gid']}' for 'Gid' were empty or missing. Skipping.")
-            else:
-                raise EntraIdpModuleError(f"Entra user profile attribute '{entra_attributes['Uid']}' for 'Uid' and/or '{entra_attributes['Gid']}' for 'Gid' were empty or missing. Enable debug logging and check Graph API response. To ignore, use the ignore_missing_attributes setting in the identity provider config.")
+    if auth_result.get("access_token", None) is None:
+        raise EntraIdpModuleError("Authentication failed. Access token was not returned by Entra Auth.")
+    else:
+        logger.info(f"Authentication of {parsed_username} was successful")
+ 
 
     return response_data
