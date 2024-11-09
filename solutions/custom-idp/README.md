@@ -1071,16 +1071,6 @@ The `entra` module supports authentication with Microsoft Entra ID (formerly Azu
       },
       "authority_url": {
         "S": "[Entra ID authority URL]"
-      },
-      "scopes": {
-        "L": [
-          {
-            "S": "[scope1]"
-          },
-          {
-            "S": "[scope2]"
-          }
-        ]
       }
     }
   },
