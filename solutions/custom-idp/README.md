@@ -555,7 +555,7 @@ Each user record in DynamoDB must follow the schema below to be valid. Some fiel
         },
         "Policy": {
           "S": "[Session Policy Statement]"
-        },        
+        }        
       }
     },
     "ipv4_allow_list": {
@@ -882,9 +882,13 @@ The following is an example of a `user` record that uses the `argon2` identity p
             "HomeDirectoryType": {
                 "S": "LOGICAL"
             },
-          "Role": {
-            "S": "arn:aws:iam::[AWS Account Id]:role/[Role Name]"
-          }            
+            "Role": {
+              "S": "arn:aws:iam::[AWS Account Id]:role/[Role Name]"
+            },
+            "Policy": {
+              "S": "[Session Policy Statement]"
+            }              
+            
         }
     },
     "ipv4_allow_list": {

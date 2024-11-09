@@ -672,3 +672,9 @@ Outputs:
     Description: The VPC subnets attached to the Lambda function in the custom IdP solution.
     Value:
       !If [UseVPC, !If [CreateVPC, !Ref SecurityGroup,  !Join [",", !Ref SecurityGroups]], '']
+  DDBIdentityProvidersTableName: 
+    Description: The name of the identity providers DynamoDB table.
+    Value: !If [CreateIdentityProvidersTable, !Ref identityProvidersTable, !Ref IdentityProvidersTableName]
+  DDBUsersTableName: 
+    Description: The name of the users DynamoDB table.
+    Value: !If [CreateUsersTable, !Ref usersTable, !Ref UsersTableName]
