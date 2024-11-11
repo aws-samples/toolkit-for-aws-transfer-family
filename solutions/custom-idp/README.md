@@ -965,7 +965,7 @@ The name of the Cognito module that will be loaded to perform authentication. **
 
 **config/cognito_client_id**
 
-The Client ID of the Cognito user pool app client that will be used to perform authentication. The The user pool app client must be a public client. For more information, see the [Creating an app client](https://docs.aws.amazon.com/cognito/latest/developerguide/user-pool-settings-client-apps.html) in the AWS documentation.
+The Client ID of the Cognito user pool app client that will be used to perform authentication. The user pool app client must be a public client. For more information, see the [Creating an app client](https://docs.aws.amazon.com/cognito/latest/developerguide/user-pool-settings-client-apps.html) in the AWS documentation.
 
 ***Type:*** String
 
@@ -993,7 +993,7 @@ When set to `true`, indicates Cognito is configured to require MFA. When enabled
 > Currently, only TOTP-based MFA (e.g. Google Authenticator) is supported by this module. SMS is NOT supported.
 
 >[!IMPORTANT]
-> When this is set, the MFA TOTP code is ALWAYS expected at the end of the password (e.g. `PASSWORD123456`). This is extracted from the password before authentication. If no token is entered, authentication will fail even if the password is incorrect even if MFA is not required because the last x characters of the password will be parsed out of the password (e.g. `PA` password and `SSWORD` for token).
+> When this is set, the MFA TOTP code is ALWAYS expected at the end of the password (e.g. `PASSWORD123456`). This is extracted from the password before authentication. If no token is entered, authentication will fail even if the password is correct and MFA is not required because the last x characters of the password will be parsed out of the password (e.g. `PA` password and `SSWORD` for token).
 
 
 ***Type:*** Boolean
@@ -1046,7 +1046,7 @@ The following example identity provider record configures the Cognito module to:
     }
   }
   "module": {
-    "S": "okta"
+    "S": "cognito"
   }
 }
 ```
@@ -1221,6 +1221,7 @@ The `ldap` module supports authentication with Active Directory and LDAP servers
       "ldap_service_account_secret_arn": {
         "S": "[ARN of Secrets Manager secret]"
       }
+    }
   },
   "module": {
     "S": "ldap"
