@@ -55,7 +55,11 @@ To get started, review the [Solution Overview](#solution-overview), then followi
       - [Secrets Manager](#secrets-manager)
   - [AWS Transfer session settings inheritance](#aws-transfer-session-settings-inheritance)
     - [Example](#example-6)
+  - [AWS Transfer session configuration variables](#aws-transfer-session-configuration-variables)
+    - [Supported variables](#supported-variables)
+    - [Example](#example-6) 
 - [Modifying/updating solution parameters](#modifyingupdating-solution-parameters)
+    - [Example](#example-5)
   - [Updating the solution](#updating-the-solution)
   - [Uninstall the solution](#uninstall-the-solution)
     - [Cleanup remaining artifacts](#cleanup-remaining-artifacts)
@@ -175,7 +179,7 @@ Before deploying the solution, you will need the following:
     | **VPCId** | **CONDITIONALLY REQUIRED**. Must be set if `CreateVPC` is `false`. The ID of the VPC to deploy the custom IDP solution into. The VPC specified should have network connectivity to any IdPs that will used for authentication.  | *A VPC ID, i.e. `vpc-abc123def456`* |    
     | **Subnets** | **CONDITIONALLY REQUIRED**. Must be set if `CreateVPC` is `false`. A list of subnet IDs to attach the Lambda function to. The Lambda is attached to subnets in order to allow private communication to IdPs such as LDAP servers or Active Directory domain controllers. At least one subnet must be specified, and all subnets must be in the same VPC specified above. **IMPORTANT**: The subnets must be able to reach DynamoDB service endpoints. If using public IdP such as Okta, the subnet must also have a route to a NAT Gateway that can forward requests to the internet. *Using a public subnet will not work because Lambda network interfaces are not assigned public IP addresses*.  | *comma-separated list of subnet IDs, i.e. `subnet-123abc,subnet-456def`* |
     | **SecurityGroups** | **CONDITIONALLY REQUIRED**. Must be set if `CreateVPC` is false. A list of security group IDs to assign to the Lambda function. This is used to control inbound and outbound access to/from the ENI the Lambda function uses for network connectivity. At least one security group must be specified and the security group must belong to the VPC specified above. | *comma-separated list of Security Group IDs, i.e. `sg-abc123`* |
-    | **UserNameDelimiter**  | The delimiter to use when specifying both the username and IdP name during login. Currently, only [username]**&#64;**[IdP-name] is supported due to validation checks that AWS Transfer Family performs on the username. This parameter may eventually be eliminated from the template.  | **&#64;** |    
+    | **UserNameDelimiter**  | The delimiter to use when specifying both the username and IdP name during login. It is recommended that `@@` be used to avoid issues with parsing email addresses, e.g. `[username]@@[IdP-name]`. Currently, only the `@` character is supported due to validation checks that AWS Transfer Family performs on the username.  | **`@@`** |    
     | **SecretsManagerPermissions** | Set to *`true`* if you will use the Secrets Manager authentication module, otherwise *`false`* | `true` or `false`|
     | **ProvisionApi** | When set to *`true`* an API Gateway REST API will be provisioned and integrated with the custom IdP Lambda. Provisioning and using an API Gateway REST API with AWS Transfer is useful if you intend to [use AWS Web Application Firewall (WAF) WebACLs to restrict requests to authenticate to specific IP addresses](https://aws.amazon.com/blogs/storage/securing-aws-transfer-family-with-aws-web-application-firewall-and-amazon-api-gateway/) or apply rate limiting. | `true` or `false` |    
     | **LogLevel** | Sets the verbosity of logging for the Lambda IdP function. This should be set to `INFO` by default and `DEBUG` when troubleshooting. <br /><br />**IMPORTANT** When set to `DEBUG`, sensitive information may be included in log entries. | `INFO` or `DEBUG` <br /> <br /> *`INFO` recommended as default* |
@@ -523,7 +527,12 @@ Each user record in DynamoDB must follow the schema below to be valid. Some fiel
                 },
                 "Target": {
                   "S": "[S3 or EFS Path]"
-                }
+                },
+                "regions": {
+                  "SS": [
+                    "[REGION_CODE]"
+                  ]
+                },                
               }
             }
           ]
@@ -595,7 +604,9 @@ A name used for referencing the identity provider in the `identity_providers` ta
 
 **config/HomeDirectoryDetails**
 
-The list of `HomeDirectoryDetails` entries. These Logical directory mappings that specify which Amazon S3 or Amazon EFS paths and keys should be visible to your user and how you want to make them visible. You must specify the Entry and Target pair, where Entry is the directory displayed to the client and Target is the actual Amazon S3 or Amazon EFS path.
+The list of `HomeDirectoryDetails` entries. These Logical directory mappings that specify which Amazon S3 or Amazon EFS paths and keys should be visible to your user and how you want to make them visible. You must specify the `Entry` and `Target` pair, where `Entry` is the directory displayed to the client and `Target` is the actual Amazon S3 or Amazon EFS path.
+
+Optionally, you can specify a StringSet of `regions` that can be used to filter out directories based on the region the Custom IdP solution is in. This is useful for multi-region deployments where the `users` and `identity_providers` tables are replicated to other regions via DynamoDB Global tables.
 
 The format is:
 
@@ -609,7 +620,12 @@ The format is:
                 },
                 "Target": {
                   "S": "[S3 or EFS Path]"
-                }
+                },
+                "regions": {
+                  "SS": [
+                    "[REGION_CODE]"
+                  ]
+                },                    
               }
             },
             {
@@ -619,7 +635,12 @@ The format is:
                 },
                 "Target": {
                   "S": "[S3 or EFS Path]"
-                }
+                },
+                "regions": {
+                  "SS": [
+                    "[REGION_CODE]"
+                  ]
+                },                    
               }
             }            
           ]
@@ -1223,8 +1244,13 @@ The `ldap` module supports authentication with Active Directory and LDAP servers
       },      
       "ldap_service_account_secret_arn": {
         "S": "[ARN of Secrets Manager secret]"
-      }
-    }
+      },
+      "ldap_allowed_groups": {
+        "SS": [
+          "[LDAP Group DN]",
+          "[LDAP Group DN]"
+        ]
+      }      
   },
   "module": {
     "S": "ldap"
@@ -1351,7 +1377,26 @@ CERTIFICATE CONTENTS HERE
 
 ***Default:*** *none*
 
-**config/ldap_service_account_secret_arn***
+**config/ldap_allowed_groups**
+
+A list of LDAP group Distinguished Names (DNs) that are allowed to authenticate and connect to the AWS Transfer Family server. The groups MUST be in DN format (e.g. `CN=Group Name,CN=Users,DC=domain2019,DC=local`). DNs are currently case sensitive.
+
+If a user authenticates to LDAP or Active Directory successfully but is not a member of any groups in this list, access is denied. 
+
+The module logic looks for direct group memberships by retrieving the `memberOf` attribute for the authenticating user. If no allowed groups are found, an attempt to retrieve Active Directory nested groups is performed using the filter `1.2.840.113556.1.4.1941` (`LDAP_MATCHING_RULE_IN_CHAIN`).
+
+***Type:*** StringSet
+
+***Constraints:*** Must be a list of valid LDAP group Distinguished Names (DNs)
+
+***Required:*** No
+
+***Default:*** *none*
+
+
+
+
+**config/ldap_service_account_secret_arn**
 
 An optional ARN of a Secrets Manager secret that contains the credentials for an Active Directory or LDAP service account that will be used check if an account is locked or disabled when the AWS Transfer Family server receives a public key authentication request and the public key has been stored in user record in the DynamoDB `users` table. This is useful if you wish to support public key authentication for Active Directory users but verify the the user's account exists and has not been disabled, This also enables retrieval attributes from Active Directory and LDAP, such as UID and GID. 
 
@@ -2055,6 +2100,97 @@ When an AWS Transfer Family custom identity provider authenticates a user, it re
     }
 }
 ```
+
+## AWS Transfer session configuration variables
+The custom IdP solution supports several variables that can be embedded in user records to return dynamic values in a session response. The most common use case for this is to customize the bucket name or folder path based on an AWS account number, region, or username. 
+
+Session variables can be included in the values of both user and identity provider records, but are only replaced in the final response returned to AWS Transfer Family. 
+
+Session variables can be used by embedding them in the format: `{{VARIABLE_NAME}}` inside user and identity provider records.
+
+### Supported variables
+The following session variables are currently supported:
+
+| Variable    | Description                                                                      |
+| ----------- | -------------------------------------------------------------------------------- |
+| `{{AWS_ACCOUNT}}` | The 10-digit AWS Account ID that the custom IdP solution is deployed to.    |
+| `{{AWS_REGION}}`  | The region code (e.g. us-east-1) that the custom IdP solution is deployed to.    |
+| `{{USERNAME}}`    | The parsed username or the user the custom IdP solution is currently processing. <br /> **NOTE:** The built-in dynamic variable [`${transfer:UserName}](https://docs.aws.amazon.com/transfer/latest/userguide/users-policies-session.html) is recommended when dynamically specifying the username in `HomeDirectory`, `HomeDirectoryDetails`, and `Policy`.  |
+
+### Example
+
+One example of how variables can be used is for a multi-region architecture where AWS Transfer Family servers are deployed in two regions, while data is replicated between S3 buckets in each region. The `identity_provider` and `user` records are also replicated. In this scenario, the configuration could be as follows:
+
+**us-east-1**
+* **AWS Transfer family server hostname:** transfer-us.company.com
+* **S3 bucket:** company-files-us-east-1
+  * S3 replication to bucket *company-files-eu-west-1*
+* **Custom IdP solution:** *Deployed*
+  * `user` and `identity_provider` tables defined as global tables, replicated to eu-west-1
+
+**eu-west-1**
+* **AWS Transfer family server hostname:** transfer-eu.company.com
+* **S3 bucket:** company-files-eu-west-1
+  * S3 replication to bucket *company-files-us-east-1*
+* **Custom IdP solution:** *Deployed*
+  * Using `user` and `identity_provider` table replicas from us-east-1
+
+The following user record includes `{{REGION}}` so they connect to the bucket in the same region as the AWS Transfer Family server (and custom IdP solution) they connect to:
+
+```json
+{
+    "user": {
+        "S": "jsmith"
+    },
+    "identity_provider_key": {
+        "S": "example.com"
+    },
+    "config": {
+        "M": {
+            "HomeDirectoryDetails": {
+                "L": [{
+                        "M": {
+                            "Entry": {
+                                "S": "/home"
+                            },
+                            "Target": {
+                                "S": "/company-files-{{REGION}}/users/jsmith"
+                            }
+                        }
+                    },
+                    {
+                        "M": {
+                            "Entry": {
+                                "S": "/finance"
+                            },
+                            "Target": {
+                                "S": "/company-files-{{REGION}}/departments/finance"
+                            }
+                        }
+                    }
+                ]
+            },
+            "HomeDirectoryType": {
+                "S": "LOGICAL"
+            }
+        }
+    }
+}
+```
+
+
+If connecting to transfer-eu.company.com, the session settings returned to AWS Transfer Family will look like this:
+
+```json
+{
+    "Role": "[ROLE_ARN]",
+    "HomeDirectoryDetails": "[{\"Entry\": \"/home\", \"Target\": \"/company-files-eu-west-1/users/jsmith\"}, {\"Entry\": \"/finance\", \"Target\": \"/company-files-eu-west-1/departments/finance\"}]",
+    "HomeDirectoryType": "LOGICAL"
+}
+```
+
+
+
 # Modifying/updating solution parameters
 If you need to change the parameters that were used to deploy the solution initially, in most cases you can use modify the CloudFormation stack. 
 

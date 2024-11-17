@@ -6,7 +6,7 @@ import ipaddress
 import json
 import logging
 import os
-
+import re
 from aws_lambda_powertools import Tracer
 
 tracer = Tracer()
@@ -27,6 +27,8 @@ USER_NAME_DELIMITER = os.environ["USER_NAME_DELIMITER"]
 USERS_TABLE = boto3.resource("dynamodb").Table(USERS_TABLE_ID)
 IDENTITY_PROVIDERS_TABLE = boto3.resource("dynamodb").Table(IDENTITY_PROVIDERS_TABLE_ID)
 
+ACCOUNT_ID = boto3.client('sts').get_caller_identity().get('Account')
+AWS_REGION = os.environ.get("AWS_REGION", os.environ.get("AWS_DEFAULT_REGION", ""))
 
 class IdpHandlerException(Exception):
     """Used to raise handler exceptions"""
@@ -69,8 +71,8 @@ def lambda_handler(event, context):
 
     if 1 < len(parsed_username):
         if (
-            USER_NAME_DELIMITER == "@" or USER_NAME_DELIMITER == "$"
-        ):  # support format <user>@<idp>   OR <user>$<idp>
+            USER_NAME_DELIMITER == "@" or USER_NAME_DELIMITER == "@@"
+        ):  # support format <user>@<idp>   OR <user>@@<idp>
             username = USER_NAME_DELIMITER.join(parsed_username[:-1])
             identity_provider = parsed_username[-1]
         else:  # anything else is in this order <idp>\<user> , <idp>/<user>
@@ -241,7 +243,7 @@ def lambda_handler(event, context):
     # Intentionally, we DO NOT merge PublicKeys entries from identity provider record because it implies shared credentials. PublicKeys entries should only come from user records or in values returned by the identity provider if implemented.
 
     logger.debug(
-        "Response Data before processing with IdP module: " + json.dumps(response_data)
+        f"Response Data before processing with IdP module: {response_data}"
     )
 
     if event.get("password", "").strip() == "":
@@ -280,11 +282,23 @@ def lambda_handler(event, context):
             authn_method=authn_method,
         )
 
-    # HomeDirectoryDetails must be a stringified list
+    # HomeDirectoryDetails must be a stringified list, check if any paths have a region filter and apply the filter.
     if "HomeDirectoryDetails" in response_data:
         if type(response_data["HomeDirectoryDetails"]) == list:
+            filtered_home_directory_details = []
+            for entry in response_data["HomeDirectoryDetails"]:
+                if "regions" in entry:
+                    if not AWS_REGION.lower() in entry["regions"]:
+                        logger.debug(f"Virtual directory entry {entry['Entry']} has a region filter that does not include {AWS_REGION}. Removing from list.")
+                    else:
+                        logger.debug(f"Virtual directory entry {entry['Entry']} has a region filter that includes {AWS_REGION}.")
+                        entry.pop("regions")
+                        filtered_home_directory_details.append(entry)
+                else:
+                    logger.debug(f"Virtual directory entry {entry['Entry']} has no region filter.")
+                    filtered_home_directory_details.append(entry)
             response_data["HomeDirectoryDetails"] = json.dumps(
-                response_data["HomeDirectoryDetails"]
+                filtered_home_directory_details
             )
 
     # An extra check to make sure we've really authenticated, prevent accidental authentication. There should always be either at least 1 public key in response, or 'password' authentication should have been used.
@@ -296,6 +310,20 @@ def lambda_handler(event, context):
             "PublicKeys is empty and password was not set. Check user config and authentication module logic."
         )
 
-    logger.info(f"Completed Response Data: {response_data}")
+    logger.debug(f"Response Data after processing with IdP module: {response_data}")
+
+    response_data_str = json.dumps(response_data)
+    
+    response_variables = {
+        "USERNAME": username,
+        "AWS_REGION": AWS_REGION,
+        "AWS_ACCOUNT": ACCOUNT_ID
+    }
+
+    response_data_str = re.sub(r'\{\{(\w+)\}\}', lambda match: response_variables[match.group(1)], response_data_str)
+
+    response_data = json.loads(response_data_str)
+
+    logger.info(f"Completed Response Data: {json.dumps(response_data, default=list)}")
 
     return response_data
