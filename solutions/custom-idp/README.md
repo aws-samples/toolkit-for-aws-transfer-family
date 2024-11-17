@@ -7,6 +7,7 @@ To get started, review the [Solution Overview](#solution-overview), then followi
 - [AWS Transfer Family Custom IdP Solution](#aws-transfer-family-custom-idp-solution)
   - [Contents](#contents)
 - [Solution Overview](#solution-overview)
+  - [Supported identity providers](#supported-identity-providers)
 - [Architecture](#architecture)
   - [Process flow details](#process-flow-details)
     - [Lambda function](#lambda-function)
@@ -52,14 +53,13 @@ To get started, review the [Solution Overview](#solution-overview), then followi
       - [DynamoDB Record Schema](#dynamodb-record-schema-6)
       - [Parameters](#parameters-6)
       - [Example](#example-5)
-      - [Secrets Manager](#secrets-manager)
-  - [AWS Transfer session settings inheritance](#aws-transfer-session-settings-inheritance)
+    - [Secrets Manager](#secrets-manager)
+- [AWS Transfer session settings inheritance](#aws-transfer-session-settings-inheritance)
     - [Example](#example-6)
-  - [AWS Transfer session configuration variables](#aws-transfer-session-configuration-variables)
+- [AWS Transfer session configuration variables](#aws-transfer-session-configuration-variables)
     - [Supported variables](#supported-variables)
-    - [Example](#example-6) 
+  - [Example](#example-7)
 - [Modifying/updating solution parameters](#modifyingupdating-solution-parameters)
-    - [Example](#example-5)
   - [Updating the solution](#updating-the-solution)
   - [Uninstall the solution](#uninstall-the-solution)
     - [Cleanup remaining artifacts](#cleanup-remaining-artifacts)
@@ -67,12 +67,13 @@ To get started, review the [Solution Overview](#solution-overview), then followi
   - [Testing custom identity providers](#testing-custom-identity-providers)
   - [Accessing logs](#accessing-logs)
     - [Setting the log level](#setting-the-log-level)
-  - [FAQ](#faq)
   - [Common issues](#common-issues)
+- [FAQ](#faq)
 - [Tutorials](#tutorials)
   - [Configuring Entra ID as an identity provider](#configuring-entra-id-as-an-identity-provider)
     - [Creating an App Registration in Microsoft Entra ID for AWS Transfer Family](#creating-an-app-registration-in-microsoft-entra-id-for-aws-transfer-family)
     - [Assign users and enable admin consent](#assign-users-and-enable-admin-consent)
+    - [Create an AWS Secrets Manager secret](#create-an-aws-secrets-manager-secret)
     - [Define an Entra ID identity provider](#define-an-entra-id-identity-provider)
     - [Define a user](#define-a-user)
     - [Test the identity provider](#test-the-identity-provider)
@@ -93,6 +94,19 @@ The AWS Transfer Family Custom IdP Solution provides these key features:
 * Support for multiple IdPs connected to a single Transfer Family Server and multiple Transfer Family servers using the same deployment of the solution.
 * Built-in IP allow-list checking, such as IP allow lists that can optionally be configured on a per-user or per-IdP basis.
 * Detailed logging with configurable log-level and tracing support to aide in troubleshooting
+
+## Supported identity providers
+Below is a list of the built-in identity provider modules the solution provides. For details on configuring a specific module, see the [Identity provider module reference](#identity-provider-module-reference).
+
+| **Provider**                 | **Password flows** | **Public key flows** | **Multi-factor** | **Attribute retrieval** | **Details**                                                                                                                  |
+| ---------------------------- | ------------------ | -------------------- | ---------------- | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| [Active Directory and LDAP](#ldap-and-active-directory)    | Yes                | Yes\*                | No               | Yes                     | User verificaiton can be performed as part of public key authentication flow. Retrieving keys from AD/LDAP is not supported. |
+| [Argon2 (local hash)](#argon2)          | Yes                | No                   | No               | No                      | Argon2 hashes are stored in the user record for 'local' password based authentication use cases.                             |
+| [Cognito](#cognito)                      | Yes                | No                   | Yes\*            | No                      | TOTP-based MFA only. SMS-based MFA is not supported.                                                                         |
+| [Entra ID (formerly Azure AD)](#microsoft-entra-id-beta) | Yes                | No                   | No               | No                      | Currently in Beta status release                                                                                                                 |
+| [Okta](#okta)                         | Yes                | Yes                  | Yes\*            | Yes                     | TOTP-based MFA only.                                                                                                         |
+| [Public Key](#okta)                   | No                 | Yes                  | No               | No                      | Public keys are stored in the user record in DynamoDB.                                                                       |
+| [Secrets Manager](#secrets-manager)              | Yes                | Yes                  | No               | No                      |                                                                                                                              |
 
 # Architecture
 AWS Transfer Family Custom IdP Solution deploys an AWS Lambda function along with an Amazon DynamoDB database to store configuration metadata about users and IdPs. You can configure different modules (e.g. LDAP, Okta, public/private keys) to handle authentication against various IdPs. This modular approach enables the addition of new IdPs in the future and provides the ability to develop custom modules. The user records in the DynamoDB table map usernames to specific IdPs and store per-user settings like home directory details, roles, and POSIX profiles. When a client connects to the AWS Transfer Family server, the custom IdP Lambda function authenticates the user against the configured IdP module, retrieves the user-specific session settings from DynamoDB, and provisions those settings for the session.
@@ -1250,7 +1264,8 @@ The `ldap` module supports authentication with Active Directory and LDAP servers
           "[LDAP Group DN]",
           "[LDAP Group DN]"
         ]
-      }      
+      }
+    }      
   },
   "module": {
     "S": "ldap"
@@ -1987,11 +2002,14 @@ The following is an example of a user record that contains public keys that are 
   }
 ```
 
-#### Secrets Manager
+### Secrets Manager
 
-***We're working on creating documentation for this module. Please create an issue if you have any questions.***
+> [!IMPORTANT] 
+> This module is being considered for deprecation. Storing passwords with reversible encryption is not recommended. We recommend using the Argon2 module instead. 
+> 
+> We're working on creating documentation for this module. Please create an issue if you have any questions.
 
-## AWS Transfer session settings inheritance
+# AWS Transfer session settings inheritance
 When an AWS Transfer Family custom identity provider authenticates a user, it returns all session setup properties such as the `HomeDirectoryDetails`, `Role`, and `PosixProfile` . To maximize the flexibility, most of these values can be specified in the user record, identity provider record. Values can also be retrieved from some identity providers (i.e. the LDAP module supports retrieving `Uid` and `Gid` attributes). When a value is contained in multiple locations, there is an ordered inheritance/priority to merge the final values together. Below is the inheritance order, with 1 being the highest priority:
 
 1. Values returned by the identity provider. 
@@ -2101,7 +2119,7 @@ When an AWS Transfer Family custom identity provider authenticates a user, it re
 }
 ```
 
-## AWS Transfer session configuration variables
+# AWS Transfer session configuration variables
 The custom IdP solution supports several variables that can be embedded in user records to return dynamic values in a session response. The most common use case for this is to customize the bucket name or folder path based on an AWS account number, region, or username. 
 
 Session variables can be included in the values of both user and identity provider records, but are only replaced in the final response returned to AWS Transfer Family. 
@@ -2117,7 +2135,7 @@ The following session variables are currently supported:
 | `{{AWS_REGION}}`  | The region code (e.g. us-east-1) that the custom IdP solution is deployed to.    |
 | `{{USERNAME}}`    | The parsed username or the user the custom IdP solution is currently processing. <br /> **NOTE:** The built-in dynamic variable [`${transfer:UserName}](https://docs.aws.amazon.com/transfer/latest/userguide/users-policies-session.html) is recommended when dynamically specifying the username in `HomeDirectory`, `HomeDirectoryDetails`, and `Policy`.  |
 
-### Example
+## Example
 
 One example of how variables can be used is for a multi-region architecture where AWS Transfer Family servers are deployed in two regions, while data is replicated between S3 buckets in each region. The `identity_provider` and `user` records are also replicated. In this scenario, the configuration could be as follows:
 
@@ -2288,41 +2306,6 @@ Follow these same steps to return the **LogLevel** setting to `INFO` after finis
 > [!WARNING]
 > Setting the log level to `DEBUG` can result in sensitive information being included in logs, since other Python packages used in the solution will log raw request information. Be mindful of this when sharing these logs and granting access to them. **Consider using `DEBUG` only in non-production environments with non-sensitive test accounts.**
 
-## FAQ
-* **Can I connect and use multiple identity providers using the same custom IdP deployment?**
-  
-  Yes, the solution is designed to support this scenario. To do this, create multiple records in the **identity_providers** DynamoDB table, then define user records associated with those IdPs. 
-
-* **What happens if I define the same username for multiple IdPs?** 
-
-  If the user specifies the identity provider using the `UserNameDelimiter` when authenticating, that provider will be used. If no identity provider is specified, the identity provider associated with the first user record retrieved will be used for handling authentication. *The solution will not attempt all matching identity providers for the username*. 
-
-* **Can I connect multiple AWS Transfer servers to the same custom IdP deployment?**
-
-  Yes, this is by design so that the same custom IdP solution and identity provider/user records can be used across multiple AWS Transfer servers. One common use case for this is when an organization has separate AWS Transfer servers for both S3 and EFS targets. Both S3 and EFS targets can also be specified in the same user record if `HomeDirectoryType` is set to `LOGICAL` in the record.
-
-* **Can this solution be deployed multiple times in the same AWS account and region?**
-  
-  Yes, the solution's resources are deployed with name and ARN conventions that avoid collisions. It can be deployed multiple times to support use cases such as multi-tenancy. 
-
-* **Can the same custom IdP deployment be used for AWS Transfer servers that are in multiple regions?**
-  
-  This can be done only if the API Gateway setting has been enabled and is used as the custom identity provider source.
-
-* **I need to re-deploy the solution, how do I retain my identity provider and user  tables?**
-  
-  The identity provider and user tables in DynamoDB are retained when the stack is deleted. When re-deploying the solution, reference the table names when creating the stack, and the solution will use the existing tables instead of creating new ones. 
-
-* **Does the AWS Transfer server need to be deployed in the same VPC as the Custom IdP solution?**
-  No, it can be deployed independently of the VPC the Custom IdP solution uses. 
-
-* **Can I use Password AND Key (multi method) authentication with the Custom IdP solution?** 
-  Yes. With Password AND Key authentication configured on an AWS Transfer Family server, the public keys listed in the `PublicKeys` attribute of the user record will be used automatically during the key authentication request, then the identity provider module associated will handle the password request. For an example of how to populate the `PublicKeys` attribute, see the [Public Key](#public-key) identity provider module reference.
-  
-  > [!NOTE]  
-  > Some identity provider modules may be able to support both password and key based authentication, in which case the `public_key_support` attribute will be set to `true` in the `identity_providers` record. In this case, the module may not use the `PublicKeys` attribute and retrieve user public keys from another source. 
-
-
 ## Common issues
 
 * **After deploying the solution, authentication requests fail and/or the Lambda function logs show timeouts.**
@@ -2371,8 +2354,40 @@ Follow these same steps to return the **LogLevel** setting to `INFO` after finis
   healthy: dynamodb.us-east-1.amazonaws.com %
   ``` 
 
-
+# FAQ
+* **Can I connect and use multiple identity providers using the same custom IdP deployment?**
   
+  Yes, the solution is designed to support this scenario. To do this, create multiple records in the **identity_providers** DynamoDB table, then define user records associated with those IdPs. 
+
+* **What happens if I define the same username for multiple IdPs?** 
+
+  If the user specifies the identity provider using the `UserNameDelimiter` when authenticating, that provider will be used. If no identity provider is specified, the identity provider associated with the first user record retrieved will be used for handling authentication. *The solution will not attempt all matching identity providers for the username*. 
+
+* **Can I connect multiple AWS Transfer servers to the same custom IdP deployment?**
+
+  Yes, this is by design so that the same custom IdP solution and identity provider/user records can be used across multiple AWS Transfer servers. One common use case for this is when an organization has separate AWS Transfer servers for both S3 and EFS targets. Both S3 and EFS targets can also be specified in the same user record if `HomeDirectoryType` is set to `LOGICAL` in the record.
+
+* **Can this solution be deployed multiple times in the same AWS account and region?**
+  
+  Yes, the solution's resources are deployed with name and ARN conventions that avoid collisions. It can be deployed multiple times to support use cases such as multi-tenancy. 
+
+* **Can the same custom IdP deployment be used for AWS Transfer servers that are in multiple regions?**
+  
+  This can be done only if the API Gateway setting has been enabled and is used as the custom identity provider source.
+
+* **I need to re-deploy the solution, how do I retain my identity provider and user  tables?**
+  
+  The identity provider and user tables in DynamoDB are retained when the stack is deleted. When re-deploying the solution, reference the table names when creating the stack, and the solution will use the existing tables instead of creating new ones. 
+
+* **Does the AWS Transfer server need to be deployed in the same VPC as the Custom IdP solution?**
+  No, it can be deployed independently of the VPC the Custom IdP solution uses. 
+
+* **Can I use Password AND Key (multi method) authentication with the Custom IdP solution?** 
+  Yes. With Password AND Key authentication configured on an AWS Transfer Family server, the public keys listed in the `PublicKeys` attribute of the user record will be used automatically during the key authentication request, then the identity provider module associated will handle the password request. For an example of how to populate the `PublicKeys` attribute, see the [Public Key](#public-key) identity provider module reference.
+  
+  > [!NOTE]  
+  > Some identity provider modules may be able to support both password and key based authentication, in which case the `public_key_support` attribute will be set to `true` in the `identity_providers` record. In this case, the module may not use the `PublicKeys` attribute and retrieve user public keys from another source. 
+
 # Tutorials
 
 ## Configuring Entra ID as an identity provider
@@ -2409,6 +2424,25 @@ Follow these same steps to return the **LogLevel** setting to `INFO` after finis
 
 > [!IMPORTANT]  
 > Before users can authenticate successfully, app consent for must be completed. Authentication will fail if this is not done.
+
+### Create an AWS Secrets Manager secret
+Here are the step-by-step instructions with double quotes converted to bold:
+
+1. In the AWS console, navigate to** AWS Secrets Manager.**  On the Secrets Manager homepage, click the **Store a new secret** button.
+
+2. On the **Choose secret type** page, select **Other type of secret** under **Secret type**. Under **Key/value pairs**, click the **Plaintext** tab. In this text area, enter the plaintext erase any existing value and paste the **client secret** that was pasted into a text file in step 7 of in the first section of this tutorial.
+
+  Leave the **Encryption key** as the default (AWS managed key), then click **Next**.
+
+3. On the **Configure secret** page:
+   - Enter a name for your secret in the **Secret name** field (e.g. **entra_app_secret**), then click **Next**.
+
+4. On the **Configure rotation** page, select **Disable automatic rotation** and click **Next**.
+
+5. On the **Review** page, review all the details of your secret, then click **Store**.
+
+6. In the **Secrets Manager console**, select the name of the secret that was created. If you do not see it listed, click the refresh button. Copy the **Secret ARN** to a text file before proceeding.
+
 
 ### Define an Entra ID identity provider
 1. In the AWS Console, navigate to the [DynamoDB Item Explorer](https://console.aws.amazon.com/dynamodbv2/home#item-explorer). Select the `[StackName]_identity_providers` table, then click **Create Item**. 
