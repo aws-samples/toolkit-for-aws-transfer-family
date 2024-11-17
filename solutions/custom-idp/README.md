@@ -36,7 +36,7 @@ To get started, review the [Solution Overview](#solution-overview), then followi
       - [DynamoDB Record Schema](#dynamodb-record-schema-2)
       - [Parameters](#parameters-2)
       - [Example](#example-1)
-    - [Microsoft Entra ID](#microsoft-entra-id)
+    - [Microsoft Entra ID (BETA)](#microsoft-entra-id-beta)
       - [DynamoDB Record Schema](#dynamodb-record-schema-3)
       - [Parameters](#parameters-3)
       - [Example](#example-2)
@@ -1051,9 +1051,12 @@ The following example identity provider record configures the Cognito module to:
 }
 ```
 
-### Microsoft Entra ID
+### Microsoft Entra ID (BETA)
 
 The `entra` module supports authentication with Microsoft Entra ID (formerly Azure AD).
+
+>[!IMPORTANT]
+> This module is released as Beta to allow solution users to test and provide feedback. While there are no known issues with the module, it has limited testing.
 
 >[!IMPORTANT]
 > * The Entra ID module does NOT support MFA-based authentication. This is a documented limitation with [Resource Owner Password Credential (ROPC) flows in Entra ID](https://learn.microsoft.com/en-us/entra/identity-platform/v2-oauth-ropc)
