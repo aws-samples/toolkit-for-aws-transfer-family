@@ -69,8 +69,8 @@ def lambda_handler(event, context):
 
     if 1 < len(parsed_username):
         if (
-            USER_NAME_DELIMITER == "@" or USER_NAME_DELIMITER == "$"
-        ):  # support format <user>@<idp>   OR <user>$<idp>
+            USER_NAME_DELIMITER == "@" or USER_NAME_DELIMITER == "@@"
+        ):  # support format <user>@<idp>   OR <user>@@<idp>
             username = USER_NAME_DELIMITER.join(parsed_username[:-1])
             identity_provider = parsed_username[-1]
         else:  # anything else is in this order <idp>\<user> , <idp>/<user>

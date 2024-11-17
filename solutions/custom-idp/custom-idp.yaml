@@ -40,12 +40,13 @@ Parameters:
     AllowedValues: ['true', 'false']
     Default: 'false'
   UserNameDelimiter:
-    Description: Delimiter used for username and identity provider. DEPRECATED - Only '@' is supported due to validation checks that AWS Transfer Family performs on the username field. 
+    Description: Delimiter used for username and identity provider. Used to (optionally) specify the identity provider to use when authenticating, e.g. email@domain.com@@identityprovider. IMPORTANT - It is recommended a single '@' not be used, because users authenticating with an email address will need to explicitly use the 'email@domain.com@provider' format to avoid having their email domain interpreted as the identity provider name.
     Type: String
-    Default: '@'
+    Default: '@@'
     AllowedValues:
       - '@'
-    MaxLength: 1
+      - '@@'
+    MaxLength: 2
     MinLength: 1
   LogLevel:
     Description: 'The log level to configure for Lambda authentication function. Set to DEBUG for verbose logging to be used for troubleshooting. WARNING: This may result in sensitive information being put into logs.'
