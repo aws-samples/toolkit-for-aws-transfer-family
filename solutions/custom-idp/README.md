@@ -1091,7 +1091,13 @@ The `ldap` module supports authentication with Active Directory and LDAP servers
       },      
       "ldap_service_account_secret_arn": {
         "S": "[ARN of Secrets Manager secret]"
-      }
+      },
+      "ldap_allowed_groups": {
+        "SS": [
+          "[LDAP Group DN]",
+          "[LDAP Group DN]"
+        ]
+      }      
   },
   "module": {
     "S": "ldap"
@@ -1218,7 +1224,26 @@ CERTIFICATE CONTENTS HERE
 
 ***Default:*** *none*
 
-**config/ldap_service_account_secret_arn***
+**config/ldap_allowed_groups**
+
+A list of LDAP group Distinguished Names (DNs) that are allowed to authenticate and connect to the AWS Transfer Family server. The groups MUST be in DN format (e.g. `CN=Group Name,CN=Users,DC=domain2019,DC=local`). DNs are currently case sensitive.
+
+If a user authenticates to LDAP or Active Directory successfully but is not a member of any groups in this list, access is denied. 
+
+The module logic looks for direct group memberships by retrieving the `memberOf` attribute for the authenticating user. If no allowed groups are found, an attempt to retrieve Active Directory nested groups is performed using the filter `1.2.840.113556.1.4.1941` (`LDAP_MATCHING_RULE_IN_CHAIN`).
+
+***Type:*** StringSet
+
+***Constraints:*** Must be a list of valid LDAP group Distinguished Names (DNs)
+
+***Required:*** No
+
+***Default:*** *none*
+
+
+
+
+**config/ldap_service_account_secret_arn**
 
 An optional ARN of a Secrets Manager secret that contains the credentials for an Active Directory or LDAP service account that will be used check if an account is locked or disabled when the AWS Transfer Family server receives a public key authentication request and the public key has been stored in user record in the DynamoDB `users` table. This is useful if you wish to support public key authentication for Active Directory users but verify the the user's account exists and has not been disabled, This also enables retrieval attributes from Active Directory and LDAP, such as UID and GID. 
 
