@@ -12,7 +12,7 @@ To get started, review the [Solution Overview](#solution-overview), then followi
     - [Lambda function](#lambda-function)
     - [Authentication module](#authentication-module)
   - [DynamoDB tables](#dynamodb-tables)
-- [Getting Started](#getting-started)
+- [Getting started](#getting-started)
   - [Prerequisites](#prerequisites)
   - [Deploy the solution](#deploy-the-solution)
   - [Deploy an AWS Transfer server](#deploy-an-aws-transfer-server)
@@ -36,38 +36,49 @@ To get started, review the [Solution Overview](#solution-overview), then followi
       - [DynamoDB Record Schema](#dynamodb-record-schema-2)
       - [Parameters](#parameters-2)
       - [Example](#example-1)
-    - [LDAP and Active Directory](#ldap-and-active-directory)
+    - [Microsoft Entra ID (BETA)](#microsoft-entra-id-beta)
       - [DynamoDB Record Schema](#dynamodb-record-schema-3)
       - [Parameters](#parameters-3)
       - [Example](#example-2)
-    - [Okta](#okta)
+    - [LDAP and Active Directory](#ldap-and-active-directory)
       - [DynamoDB Record Schema](#dynamodb-record-schema-4)
       - [Parameters](#parameters-4)
       - [Example](#example-3)
-    - [Public Key](#public-key)
+    - [Okta](#okta)
       - [DynamoDB Record Schema](#dynamodb-record-schema-5)
       - [Parameters](#parameters-5)
       - [Example](#example-4)
+    - [Public Key](#public-key)
+      - [DynamoDB Record Schema](#dynamodb-record-schema-6)
+      - [Parameters](#parameters-6)
+      - [Example](#example-5)
       - [Secrets Manager](#secrets-manager)
   - [AWS Transfer session settings inheritance](#aws-transfer-session-settings-inheritance)
-    - [Example](#example-5)
+    - [Example](#example-6)
   - [AWS Transfer session configuration variables](#aws-transfer-session-configuration-variables)
     - [Supported variables](#supported-variables)
-    - [Example](#example-6)
-  - [Modifying/updating solution parameters](#modifyingupdating-solution-parameters)
+    - [Example](#example-6) 
+- [Modifying/updating solution parameters](#modifyingupdating-solution-parameters)
+    - [Example](#example-5)
   - [Updating the solution](#updating-the-solution)
   - [Uninstall the solution](#uninstall-the-solution)
     - [Cleanup remaining artifacts](#cleanup-remaining-artifacts)
-  - [Logging and troubleshooting](#logging-and-troubleshooting)
-    - [Testing custom identity providers](#testing-custom-identity-providers)
-    - [Accessing logs](#accessing-logs)
+- [Logging and troubleshooting](#logging-and-troubleshooting)
+  - [Testing custom identity providers](#testing-custom-identity-providers)
+  - [Accessing logs](#accessing-logs)
     - [Setting the log level](#setting-the-log-level)
   - [FAQ](#faq)
   - [Common issues](#common-issues)
-  - [Tutorials](#tutorials)
-    - [Setting up Okta](#setting-up-okta)
-    - [Configuring Okta MFA](#configuring-okta-mfa)
-    - [Configuring Okta to retrieve session settings from user profile attributes](#configuring-okta-to-retrieve-session-settings-from-user-profile-attributes)
+- [Tutorials](#tutorials)
+  - [Configuring Entra ID as an identity provider](#configuring-entra-id-as-an-identity-provider)
+    - [Creating an App Registration in Microsoft Entra ID for AWS Transfer Family](#creating-an-app-registration-in-microsoft-entra-id-for-aws-transfer-family)
+    - [Assign users and enable admin consent](#assign-users-and-enable-admin-consent)
+    - [Define an Entra ID identity provider](#define-an-entra-id-identity-provider)
+    - [Define a user](#define-a-user)
+    - [Test the identity provider](#test-the-identity-provider)
+  - [Setting up Okta](#setting-up-okta)
+  - [Configuring Okta MFA](#configuring-okta-mfa)
+  - [Configuring Okta to retrieve session settings from user profile attributes](#configuring-okta-to-retrieve-session-settings-from-user-profile-attributes)
   - [Security](#security)
   - [License](#license)
 
@@ -123,7 +134,7 @@ The solution contains two DynamoDB tables:
 
 These tables are created by default when deploying the SAM template. The SAM template also contains optional parameters that allow you to use existing DynamoDB tables when deploying the solution.
 
-# Getting Started
+# Getting started
 
 The AWS Transfer Family Custom IdP Solution is deployed using a Serverless Application Model (SAM) template. The sections below describe how to deploy the solution into an AWS account, connect it to an AWS Transfer Family server, and configure a user and identity provider. 
 
@@ -975,7 +986,7 @@ The name of the Cognito module that will be loaded to perform authentication. **
 
 **config/cognito_client_id**
 
-The Client ID of the Cognito user pool app client that will be used to perform authentication. The The user pool app client must be a public client. For more information, see the [Creating an app client](https://docs.aws.amazon.com/cognito/latest/developerguide/user-pool-settings-client-apps.html) in the AWS documentation.
+The Client ID of the Cognito user pool app client that will be used to perform authentication. The user pool app client must be a public client. For more information, see the [Creating an app client](https://docs.aws.amazon.com/cognito/latest/developerguide/user-pool-settings-client-apps.html) in the AWS documentation.
 
 ***Type:*** String
 
@@ -1003,7 +1014,7 @@ When set to `true`, indicates Cognito is configured to require MFA. When enabled
 > Currently, only TOTP-based MFA (e.g. Google Authenticator) is supported by this module. SMS is NOT supported.
 
 >[!IMPORTANT]
-> When this is set, the MFA TOTP code is ALWAYS expected at the end of the password (e.g. `PASSWORD123456`). This is extracted from the password before authentication. If no token is entered, authentication will fail even if the password is incorrect even if MFA is not required because the last x characters of the password will be parsed out of the password (e.g. `PA` password and `SSWORD` for token).
+> When this is set, the MFA TOTP code is ALWAYS expected at the end of the password (e.g. `PASSWORD123456`). This is extracted from the password before authentication. If no token is entered, authentication will fail even if the password is correct and MFA is not required because the last x characters of the password will be parsed out of the password (e.g. `PA` password and `SSWORD` for token).
 
 
 ***Type:*** Boolean
@@ -1056,7 +1067,129 @@ The following example identity provider record configures the Cognito module to:
     }
   }
   "module": {
-    "S": "okta"
+    "S": "cognito"
+  }
+}
+```
+
+### Microsoft Entra ID (BETA)
+
+The `entra` module supports authentication with Microsoft Entra ID (formerly Azure AD).
+
+>[!IMPORTANT]
+> This module is released as Beta to allow solution users to test and provide feedback. While there are no known issues with the module, it has limited testing.
+
+>[!IMPORTANT]
+> * The Entra ID module does NOT support MFA-based authentication. This is a documented limitation with [Resource Owner Password Credential (ROPC) flows in Entra ID](https://learn.microsoft.com/en-us/entra/identity-platform/v2-oauth-ropc)
+> * Additionally, only Entra tenants are supported (not personal accounts). Hybrid identity federation is also not supported.
+
+#### DynamoDB Record Schema
+```json
+{
+  "provider": {
+    "S": "[provider name]"
+  },
+  "config": {
+    "M": {
+      "client_id": {
+        "S": "[Entra ID application client ID]"
+      },
+      "app_secret_arn": {
+        "S": "[ARN of the secret storing the application secret]"
+      },
+      "authority_url": {
+        "S": "[Entra ID authority URL]"
+      }
+    }
+  },
+  "module": {
+    "S": "entra"
+  }
+}
+```
+
+#### Parameters
+
+**provider**
+
+A name used for referencing the provider in the `users` table. This value is also used when users specify an identity provider during authentication (e.g. `username@provider`).
+
+***Type:*** String
+
+***Constraints:*** None
+
+***Required:*** Yes
+
+**module**
+
+The name of the Entra ID module that will be loaded to perform authentication. **This should be set to `entra`.**
+
+***Type:*** String
+
+***Constraints:*** None
+
+***Required:*** Yes
+
+**config/client_id**
+
+The Client ID of the Entra ID application that will be used for authentication and retrieving user profile attributes.
+
+***Type:*** String
+
+***Constraints:*** Must be a valid Client ID associated with an Entra ID application.
+
+***Required:*** Yes
+
+**config/app_secret_arn**
+
+The ARN of the AWS Secrets Manager secret containing the client secret for the Entra ID application.
+
+The secret string must be stored as a plaintext value. There is no JSON structure.
+
+***Type:*** String
+
+***Constraints:*** Must be a valid ARN of an AWS Secrets Manager secret.
+
+***Required:*** Yes
+
+**config/authority_url**
+
+The authority URL for the Entra ID tenant. This is typically in the format `https://login.microsoftonline.com/<tenant_id>`.
+
+***Type:*** String
+
+***Constraints:*** Must be a valid Entra ID authority URL.
+
+***Required:*** No
+
+***Default:*** `https://login.microsoftonline.com/organizations`
+
+#### Example
+
+The following example identity provider record configures the Entra ID module to:
+* Use the specified client ID and secret for authentication
+* Use a custom authority URL
+
+```json
+{
+  "provider": {
+    "S": "entra.example.com"
+  },
+  "config": {
+    "M": {
+      "client_id": {
+        "S": "12345678-1234-1234-1234-123456789012"
+      },
+      "app_secret_arn": {
+        "S": "arn:aws:secretsmanager:us-west-2:123456789012:secret:entra-app-secret-ABC123"
+      },
+      "authority_url": {
+        "S": "https://login.microsoftonline.com/tenant-id"
+      }
+    }
+  },
+  "module": {
+    "S": "entra"
   }
 }
 ```
@@ -2058,7 +2191,7 @@ If connecting to transfer-eu.company.com, the session settings returned to AWS T
 
 
 
-## Modifying/updating solution parameters
+# Modifying/updating solution parameters
 If you need to change the parameters that were used to deploy the solution initially, in most cases you can use modify the CloudFormation stack. 
 
 1. Go to [*Stacks*](https://console.aws.amazon.com/cloudformation/home#/stacks) in the CloudFormation console and select the solution stack. Click the **Update** button.
@@ -2114,10 +2247,10 @@ If you deployed the solution with the pipeline installe (`install.yaml`), these 
 * The CodeBuild and CodePipeline artifacts bucket (`${AWS::StackName}-${AWS::AccountId}-${AWS::Region}-artifacts`)
 * Cloudwatch Log groups for CodeBuild
 
-## Logging and troubleshooting
+# Logging and troubleshooting
 The solution includes detailed logging to help with troubleshooting. Below are details on how to configure log levels and use logs for troubleshooting.
 
-### Testing custom identity providers
+## Testing custom identity providers
 The AWS Transfer console has a built-in utility to test custom identity providers that use the password authentication method. You can use this to see the output returned when authentication request is made to the custom identity provider, from the viewpoint of the AWS Transfer service. To use the utility, navigate to your [**AWS Transfer Family Servers**](https://console.aws.amazon.com/transfer/servers) in the console, open the details of of the server, and select **Actions > Test** from the upper right corner. 
 
 > [!NOTE]  
@@ -2130,7 +2263,7 @@ The example below shows an authentication failure because of an incorrect passwo
 
 ![A screenshot of the identity provider testing console showing a test result](screenshots/ss-troubleshooting-idptest.png)
 
-### Accessing logs
+## Accessing logs
 The Lambda function writes all Logs to Cloudwatch Logs, which can be accessed from the [Cloudwatch console](https://console.aws.amazon.com/cloudwatch/home) in the region the solution is deployed in. The name of the log group is `/aws/lambda/${AWS::StackName}_awstransfer_idp`
 
 > [!NOTE]
@@ -2160,7 +2293,7 @@ Follow these same steps to return the **LogLevel** setting to `INFO` after finis
   
   Yes, the solution is designed to support this scenario. To do this, create multiple records in the **identity_providers** DynamoDB table, then define user records associated with those IdPs. 
 
-*  **What happens if I define the same username for multiple IdPs?** 
+* **What happens if I define the same username for multiple IdPs?** 
 
   If the user specifies the identity provider using the `UserNameDelimiter` when authenticating, that provider will be used. If no identity provider is specified, the identity provider associated with the first user record retrieved will be used for handling authentication. *The solution will not attempt all matching identity providers for the username*. 
 
@@ -2240,9 +2373,156 @@ Follow these same steps to return the **LogLevel** setting to `INFO` after finis
 
 
   
-## Tutorials
+# Tutorials
 
-### Setting up Okta
+## Configuring Entra ID as an identity provider
+
+### Creating an App Registration in Microsoft Entra ID for AWS Transfer Family
+1. Sign in to the Azure portal (https://portal.azure.com/) and navigate to Microsoft Entra ID (or Azure Active Directory).In the left menu, click on **App registrations**, then click the **New registration** button at the top. 
+2. Enter **AWS Transfer Family** as the name for the application and select the appropriate supported account types (usually "Accounts in this organizational directory only"). Leave the Redirect URI blank, then click **Register**.
+
+    ![A screenshot showing the new app registration screen in Entra ID ](./screenshots/ss-entra-appreg.png)
+3. Once created, you'll be taken to the app's overview page. Copy the **Application (client) ID** to a text file for later.
+4. Click the **Endpoints** button, then copy the **Authority URL** (e.g. https://login.microsoftonline.com/{tenant-id}) to the same text file.
+  
+    ![Entra ID app registration showing where the client ID and endpoints buttons are located. ](./screenshots/ss-entra-appreg-01.png)
+
+5. In the left menu of your app registration, click on **Certificates & secrets**. Under the **Client secrets** tab, click **New client secret**.
+6. Provide a description for the secret (e.g., "AWS Transfer Family Secret") and choose an expiration period, then click **Add**.
+7. Copy the generated **secret value** to your text file. ***Note: You won't be able to retrieve this value later.***
+
+    ![A screenshot of the Entra ID app registration client secret screen](./screenshots/ss-entra-appreg-02.png)
+### Assign users and enable admin consent
+1. In the Azure portal, navigate back to the main **Microsoft Entra ID** page. In the left menu, click on **Enterprise applications**. In the list of applications, find and click on **AWS Transfer Family** (the enterprise application associated with your app registration).
+2. In the left menu of the enterprise application, click on **Users and groups**. At the top of the page, click **Add user/group**.
+3. In the **Add Assignment** pane that opens:
+   - Click **Users and groups** to open the selection pane.
+   - Search for and select the users or groups you want to assign to the application.
+   - Click **Select** at the bottom of the pane.
+4.  Click **Assign** at the bottom of the **Add Assignment** pane. Repeat steps 5-8 for each user or group you want to assign to the application.
+
+    ![A screenshot of added users in Entra ID web interface ](./screenshots/ss-entra-addusers.png)
+5. Back in the left menu of the enterprise application, click on **Permissions**. At the top of the page, click on **Grant admin consent for (Your Organization)**. 
+6. In the confirmation dialog that appears, review the permissions and click **Yes** to grant admin consent for all the requested permissions.
+
+    ![A screenshot of the admin consent button in Entra ID ](./screenshots/ss-entra-consent.png)
+
+> [!IMPORTANT]  
+> Before users can authenticate successfully, app consent for must be completed. Authentication will fail if this is not done.
+
+### Define an Entra ID identity provider
+1. In the AWS Console, navigate to the [DynamoDB Item Explorer](https://console.aws.amazon.com/dynamodbv2/home#item-explorer). Select the `[StackName]_identity_providers` table, then click **Create Item**. 
+2. In the **Create Item** screen, click **JSON View**, then paste the following into the record: 
+
+    ```json
+    {
+      "provider": {
+        "S": "{provider}"
+      },
+      "config": {
+        "M": {
+          "app_secret_arn": {
+            "S": "{secret_arn}"
+          },
+          "authority_url": {
+            "S": "{authority_url}"
+          },
+          "client_id": {
+            "S": "{client_id}"
+          }
+        }
+      },
+      "module": {
+        "S": "entra"
+      }
+    }
+    ```
+3. Switch back to **Form View** and replace `{provider}` with your desired provider name (e.g. `entra_id`). Replace `{authority_url}` and `{client_id}` with the respective values captured in the text file in the Creating an app registration steps above. Finally, replace `{secret_arn}` with the ARN of the AWS Secret created previously.
+4. When all values are updated, click **Save**
+
+    ![A screenshot of the DynamoDB console showing the identity provider record ](./screenshots/ss-entra-ddb-01.png)
+
+### Define a user
+1. In the AWS Console, navigate to the [DynamoDB Item Explorer](https://console.aws.amazon.com/dynamodbv2/home#item-explorer). Select the `[StackName]_users` table, then click **Create Item**. 
+
+2. In the **Create Item** screen, click **JSON View**, then paste the following into the record:
+  ```json
+  {
+    "user": {
+      "S": "{username}"
+    },
+    "identity_provider_key": {
+      "S": "{entra_provider}"
+    },  
+    "config": {
+      "M": {
+        "HomeDirectoryDetails": {
+          "L": [
+            {
+              "M": {
+                "Entry": {
+                  "S": "/s3files"
+                },
+                "Target": {
+                  "S": "/[bucketname]/prefix/to/files"
+                }
+              }
+            },
+            {
+              "M": {
+                "Entry": {
+                  "S": "/efs"
+                },
+                "Target": {
+                  "S": "/fs-[efs-fs-id]"
+                }
+              }
+            }
+          ]
+        },
+        "HomeDirectoryType": {
+          "S": "LOGICAL"
+        },
+        "PosixProfile": {
+          "M": {
+            "Gid": {
+              "S": "1000"
+            },
+            "Uid": {
+              "S": "1000"
+            }
+          }
+        },
+        "Role": {
+          "S": "arn:aws:iam::[AWS Account Id]:role/[Role Name]"
+        }
+      }
+    },
+    "ipv4_allow_list": {
+      "SS": [
+        "0.0.0.0/0"
+      ]
+    }
+  }
+  ```
+
+
+3. Click the **Form** button to switch back to Form view, then expand the nested attributes. Update all of the fields as needed. Below are the details of the various fields:
+
+     * The `user` key contains the username that will be passed to AWS Transfer during authentication. This will be used to lookup the user record. **For user lookups to succeed, this value must ALWAYS be lowercase.**
+     * The `identity_provider_key` attribute contains the identity provider name from the item created in `[StackName]_identity_providers` table in the previous section.
+     * The `ipv4_allow_list` attribute is a list of remote IP CIDRs that are allowed to authenticate as the user. This is an optional attribute and by default all remote IPs are allowed to authenticate as the user. 
+     * The `config` attribute is a mapping of the user's session settings. Its values follow the same format as those found in the [Lambda Values Section](https://docs.aws.amazon.com/transfer/latest/userguide/custom-identity-provider-users.html#event-message-structure) of the custom identity provider documentation). This includes the `HomeDirectoryType`, `HomeDirectoryDetails` (for logical directory mappings),`PosixProfile`, and any `PublicKeys` associated with the user.
+       * Note that `HomeDirectoryDetails` can have both S3 and EFS targets, in the scenario you wish to use the solution with both an S3 and EFS AWS Transfer server.
+4. When all values are updated, click **Save Item**. 
+
+### Test the identity provider
+
+Test the identity provider, either by attempting to connect with an SFTP client, or by going to your AWS Transfer Server in the AWS Console and selecting **Actions > Test** in the upper right corner. If you encounter any failures, see the [Troubleshooting section](#logging-and-troubleshooting) for guidance on how to use logs for identifying the issue.
+
+  ![A screenshot of the DynamoDB console showing the identity provider record ](./screenshots/ss-entra-test.png)
+
+## Setting up Okta
 Authenticating users with Okta can be as simple as defining an identity provider with the `okta` module and including the `okta_domain` setting. The basic steps for this are as follows:
 
 1. Determine your Okta domain. This should be in the format of `{domain}.okta.com`
@@ -2306,11 +2586,13 @@ Authenticating users with Okta can be as simple as defining an identity provider
 4. Test the identity provider, either by attempting to connect with an SFTP client, or by going to your AWS Transfer Server in the AWS Console and selecting **Actions > Test** in the upper right corner. If you encounter any failures, see the [Troubleshooting section](#logging-and-troubleshooting) for guidance on how to use logs for identifying the issue.
 
 
-### Configuring Okta MFA
+
+
+## Configuring Okta MFA
 
 ***We're working on this tutorial, please check back later.***
 
-### Configuring Okta to retrieve session settings from user profile attributes
+## Configuring Okta to retrieve session settings from user profile attributes
 
 ***We're working on this tutorial, please check back later.***
 
