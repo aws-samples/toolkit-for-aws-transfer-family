@@ -51,6 +51,9 @@ To get started, review the [Solution Overview](#solution-overview), then followi
       - [Secrets Manager](#secrets-manager)
   - [AWS Transfer session settings inheritance](#aws-transfer-session-settings-inheritance)
     - [Example](#example-5)
+  - [AWS Transfer session configuration variables](#aws-transfer-session-configuration-variables)
+    - [Supported variables](#supported-variables)
+    - [Example](#example-6)
   - [Modifying/updating solution parameters](#modifyingupdating-solution-parameters)
   - [Updating the solution](#updating-the-solution)
   - [Uninstall the solution](#uninstall-the-solution)
@@ -513,7 +516,12 @@ Each user record in DynamoDB must follow the schema below to be valid. Some fiel
                 },
                 "Target": {
                   "S": "[S3 or EFS Path]"
-                }
+                },
+                "regions": {
+                  "SS": [
+                    "[REGION_CODE]"
+                  ]
+                },                
               }
             }
           ]
@@ -585,7 +593,9 @@ A name used for referencing the identity provider in the `identity_providers` ta
 
 **config/HomeDirectoryDetails**
 
-The list of `HomeDirectoryDetails` entries. These Logical directory mappings that specify which Amazon S3 or Amazon EFS paths and keys should be visible to your user and how you want to make them visible. You must specify the Entry and Target pair, where Entry is the directory displayed to the client and Target is the actual Amazon S3 or Amazon EFS path.
+The list of `HomeDirectoryDetails` entries. These Logical directory mappings that specify which Amazon S3 or Amazon EFS paths and keys should be visible to your user and how you want to make them visible. You must specify the `Entry` and `Target` pair, where `Entry` is the directory displayed to the client and `Target` is the actual Amazon S3 or Amazon EFS path.
+
+Optionally, you can specify a StringSet of `regions` that can be used to filter out directories based on the region the Custom IdP solution is in. This is useful for multi-region deployments where the `users` and `identity_providers` tables are replicated to other regions via DynamoDB Global tables.
 
 The format is:
 
@@ -599,7 +609,12 @@ The format is:
                 },
                 "Target": {
                   "S": "[S3 or EFS Path]"
-                }
+                },
+                "regions": {
+                  "SS": [
+                    "[REGION_CODE]"
+                  ]
+                },                    
               }
             },
             {
@@ -609,7 +624,12 @@ The format is:
                 },
                 "Target": {
                   "S": "[S3 or EFS Path]"
-                }
+                },
+                "regions": {
+                  "SS": [
+                    "[REGION_CODE]"
+                  ]
+                },                    
               }
             }            
           ]
@@ -1947,6 +1967,97 @@ When an AWS Transfer Family custom identity provider authenticates a user, it re
     }
 }
 ```
+
+## AWS Transfer session configuration variables
+The custom IdP solution supports several variables that can be embedded in user records to return dynamic values in a session response. The most common use case for this is to customize the bucket name or folder path based on an AWS account number, region, or username. 
+
+Session variables can be included in the values of both user and identity provider records, but are only replaced in the final response returned to AWS Transfer Family. 
+
+Session variables can be used by embedding them in the format: `{{VARIABLE_NAME}}` inside user and identity provider records.
+
+### Supported variables
+The following session variables are currently supported:
+
+| Variable    | Description                                                                      |
+| ----------- | -------------------------------------------------------------------------------- |
+| `{{AWS_ACCOUNT}}` | The 10-digit AWS Account ID that the custom IdP solution is deployed to.    |
+| `{{AWS_REGION}}`  | The region code (e.g. us-east-1) that the custom IdP solution is deployed to.    |
+| `{{USERNAME}}`    | The parsed username or the user the custom IdP solution is currently processing. <br /> **NOTE:** The built-in dynamic variable [`${transfer:UserName}](https://docs.aws.amazon.com/transfer/latest/userguide/users-policies-session.html) is recommended when dynamically specifying the username in `HomeDirectory`, `HomeDirectoryDetails`, and `Policy`.  |
+
+### Example
+
+One example of how variables can be used is for a multi-region architecture where AWS Transfer Family servers are deployed in two regions, while data is replicated between S3 buckets in each region. The `identity_provider` and `user` records are also replicated. In this scenario, the configuration could be as follows:
+
+**us-east-1**
+* **AWS Transfer family server hostname:** transfer-us.company.com
+* **S3 bucket:** company-files-us-east-1
+  * S3 replication to bucket *company-files-eu-west-1*
+* **Custom IdP solution:** *Deployed*
+  * `user` and `identity_provider` tables defined as global tables, replicated to eu-west-1
+
+**eu-west-1**
+* **AWS Transfer family server hostname:** transfer-eu.company.com
+* **S3 bucket:** company-files-eu-west-1
+  * S3 replication to bucket *company-files-us-east-1*
+* **Custom IdP solution:** *Deployed*
+  * Using `user` and `identity_provider` table replicas from us-east-1
+
+The following user record includes `{{REGION}}` so they connect to the bucket in the same region as the AWS Transfer Family server (and custom IdP solution) they connect to:
+
+```json
+{
+    "user": {
+        "S": "jsmith"
+    },
+    "identity_provider_key": {
+        "S": "example.com"
+    },
+    "config": {
+        "M": {
+            "HomeDirectoryDetails": {
+                "L": [{
+                        "M": {
+                            "Entry": {
+                                "S": "/home"
+                            },
+                            "Target": {
+                                "S": "/company-files-{{REGION}}/users/jsmith"
+                            }
+                        }
+                    },
+                    {
+                        "M": {
+                            "Entry": {
+                                "S": "/finance"
+                            },
+                            "Target": {
+                                "S": "/company-files-{{REGION}}/departments/finance"
+                            }
+                        }
+                    }
+                ]
+            },
+            "HomeDirectoryType": {
+                "S": "LOGICAL"
+            }
+        }
+    }
+}
+```
+
+
+If connecting to transfer-eu.company.com, the session settings returned to AWS Transfer Family will look like this:
+
+```json
+{
+    "Role": "[ROLE_ARN]",
+    "HomeDirectoryDetails": "[{\"Entry\": \"/home\", \"Target\": \"/company-files-eu-west-1/users/jsmith\"}, {\"Entry\": \"/finance\", \"Target\": \"/company-files-eu-west-1/departments/finance\"}]",
+    "HomeDirectoryType": "LOGICAL"
+}
+```
+
+
+
 ## Modifying/updating solution parameters
 If you need to change the parameters that were used to deploy the solution initially, in most cases you can use modify the CloudFormation stack. 
 
