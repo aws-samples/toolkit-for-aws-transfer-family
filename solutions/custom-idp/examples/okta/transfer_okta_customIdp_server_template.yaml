@@ -4,9 +4,10 @@ Parameters:
   UserNameDelimiter:
     Description: Delimiter used for username and identity provider. Only '@' is supported due to validation checks that AWS Transfer Family performs on the username. 
     Type: String
-    Default: '@'
+    Default: '@@'
     AllowedValues:
       - '@'
+      - '@@'
     AllowedPattern: '[@\\\/\-]'
     MaxLength: 1
     MinLength: 1
