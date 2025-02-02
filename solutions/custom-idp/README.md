@@ -19,7 +19,6 @@ To get started, review the [Solution Overview](#solution-overview), then followi
   - [Deploy an AWS Transfer server](#deploy-an-aws-transfer-server)
   - [Define identity providers](#define-identity-providers)
   - [Define users](#define-users)
-  - [(Optional) Define a `$default$` user record](#optional-define-a-default-user-record)
   - [Test the provider](#test-the-provider)
   - [Next steps](#next-steps)
 - [Getting help](#getting-help)
@@ -54,6 +53,8 @@ To get started, review the [Solution Overview](#solution-overview), then followi
       - [Parameters](#parameters-6)
       - [Example](#example-5)
     - [Secrets Manager](#secrets-manager)
+- [Define a `$default$` user record](#define-a-default-user-record)
+  - [Using `$default$` to set dynamic home directories](#using-default-to-set-dynamic-home-directories)
 - [AWS Transfer session settings inheritance](#aws-transfer-session-settings-inheritance)
     - [Example](#example-6)
 - [AWS Transfer session configuration variables](#aws-transfer-session-configuration-variables)
@@ -383,112 +384,6 @@ Once identity providers are defined, user records must be created. Each user rec
 
 
 6. After reviewing, click **Create Item**. The first user, `jsmith`, has been created and mapped to the `publickeys`. Next we can (optionally) create a *default* user and finally test authentication.
-
-## (Optional) Define a `$default$` user record
-While this solution is designed to provide very granular and flexible authentication and authorization to AWS Transfer users to support a variety of use cases, there are use cases where all users will access the same identity provider and either apply the same AWS Transfer session configuration such as `Role`, `PosixProfile`, and `Policy`, or retrieve session configuration parameters dynamically from the source identity provider itself. The `$default$` user record is designed to support these scenarios. The `$default$` user record is used when the Lambda function is unable to find a user record that matches the username received in the request. 
-
-Here are some important considerations for this record:
-* If no `$default$` record is specified, authentication will simply fail (which may be intended).  
-* Unless the identity provider overrides them, all users that authenticate with the `$default$` user will receive the session settings (i.e. `Role`, `PosixProfile`, and `Policy`) defined in the record. If more granularity is desired, you should define individual user records for each record.
-* Be careful when specifying a `$default$` record when there are other user records specified. Keep in mind that any username that doesn't match will attempt to use `$default` which could produce unexpected session access.
-
-Below is an example of a `$default$` user record, for mapped to an an Active Directory or LDAP identity provider. 
-
-```json
-{
-  "user": {
-    "S": "$default$"
-  },
-  "identity_provider_key": {
-    "S": "example.com"
-  },
-  "config": {
-    "M": {
-      "HomeDirectoryDetails": {
-        "L": [
-          {
-            "M": {
-              "Entry": {
-                "S": "/pics"
-              },
-              "Target": {
-                "S": "/[bucket name]/pictures"
-              }
-            }
-          },
-          {
-            "M": {
-              "Entry": {
-                "S": "/files"
-              },
-              "Target": {
-                "S": "/[bucket name]/files"
-              }
-            }
-          }
-        ]
-      },
-      "HomeDirectoryType": {
-        "S": "LOGICAL"
-      },
-      "Role": {
-        "S": "arn:aws:iam::[aws account id]:role/[role name]"
-      }
-    }
-  },
-  "ipv4_allow_list": {
-    "SS": [
-      "0.0.0.0/0"
-    ]
-  }
-}
-```
-To further illustrate a scenario where `$default$` is used, suppose `PosixProfile` and a scoped `Policy` are retrieved from Active Directory or LDAP server. This is what the identity provider record might look like.
-
-```json
-{
-  "provider": {
-    "S": "example.com"
-  },
-  "config": {
-    "M": {
-      "attributes": {
-        "M": {
-          "Gid": {
-            "S": "gidNumber"
-          },
-          "Policy": {
-            "S": "comment"
-          },
-          "Uid": {
-            "S": "uidNumber"
-          }
-        }
-      },
-      "port": {
-        "N": "636"
-      },
-      "search_base": {
-        "S": "DC=EXAMPLE,DC=COM"
-      },
-      "server": {
-        "S": "dc1.example.com"
-      },
-      "ssl": {
-        "BOOL": true
-      },
-      "ssl_verify": {
-        "BOOL": false
-      }
-    }
-  },
-  "module": {
-    "S": "ldap"
-  }
-}
-```
-The record above dynamically maps Active Directory/LDAP attributes `uidNumber`, `gidNumber`, and `comments` to `Uid`, `Gid`, and scopedown `Policy` in the AWS Transfer session configuration.
-
 
 ## Test the provider
 To test the identity provider `publickeys` and user `jsmith` created in the previous sections, use an SFTP client to connect to the AWS Transfer server. For example, on a Linux or Mac client with `sftp` client installed open a terminal window and enter the command to connect:
@@ -2008,6 +1903,162 @@ The following is an example of a user record that contains public keys that are 
 > This module is being considered for deprecation. Storing passwords with reversible encryption is not recommended. We recommend using the Argon2 module instead. 
 > 
 > We're working on creating documentation for this module. Please create an issue if you have any questions.
+
+
+# Define a `$default$` user record
+While this solution is designed to provide very granular and flexible authentication and authorization to AWS Transfer users to support a variety of use cases, there are use cases where all users will access the same identity provider and either apply the same AWS Transfer session configuration such as `Role`, `PosixProfile`, and `Policy`, or retrieve session configuration parameters dynamically from the source identity provider itself. The `$default$` user record is designed to support these scenarios. The `$default$` user record is used when the Lambda function is unable to find a user record that matches the username received in the request. 
+
+Here are some important considerations for this record:
+* If no `$default$` record is specified, authentication will simply fail (which may be intended).  
+* Unless the identity provider overrides them, all users that authenticate with the `$default$` user will receive the session settings (i.e. `Role`, `PosixProfile`, and `Policy`) defined in the record. If more granularity is desired, you should define individual user records for each record.
+* Be careful when specifying a `$default$` record when there are other user records specified. Keep in mind that any username that doesn't match will attempt to use `$default` which could produce unexpected session access.
+
+Below is an example of a `$default$` user record, for mapped to an an Active Directory or LDAP identity provider. 
+
+```json
+{
+  "user": {
+    "S": "$default$"
+  },
+  "identity_provider_key": {
+    "S": "example.com"
+  },
+  "config": {
+    "M": {
+      "HomeDirectoryDetails": {
+        "L": [
+          {
+            "M": {
+              "Entry": {
+                "S": "/pics"
+              },
+              "Target": {
+                "S": "/[bucket name]/pictures"
+              }
+            }
+          },
+          {
+            "M": {
+              "Entry": {
+                "S": "/files"
+              },
+              "Target": {
+                "S": "/[bucket name]/files"
+              }
+            }
+          }
+        ]
+      },
+      "HomeDirectoryType": {
+        "S": "LOGICAL"
+      },
+      "Role": {
+        "S": "arn:aws:iam::[aws account id]:role/[role name]"
+      }
+    }
+  },
+  "ipv4_allow_list": {
+    "SS": [
+      "0.0.0.0/0"
+    ]
+  }
+}
+```
+To further illustrate a scenario where `$default$` is used, suppose `PosixProfile` and a scoped `Policy` are retrieved from Active Directory or LDAP server. This is what the identity provider record might look like.
+
+```json
+{
+  "provider": {
+    "S": "example.com"
+  },
+  "config": {
+    "M": {
+      "attributes": {
+        "M": {
+          "Gid": {
+            "S": "gidNumber"
+          },
+          "Policy": {
+            "S": "comment"
+          },
+          "Uid": {
+            "S": "uidNumber"
+          }
+        }
+      },
+      "port": {
+        "N": "636"
+      },
+      "search_base": {
+        "S": "DC=EXAMPLE,DC=COM"
+      },
+      "server": {
+        "S": "dc1.example.com"
+      },
+      "ssl": {
+        "BOOL": true
+      },
+      "ssl_verify": {
+        "BOOL": false
+      }
+    }
+  },
+  "module": {
+    "S": "ldap"
+  }
+}
+```
+The record above dynamically maps Active Directory/LDAP attributes `uidNumber`, `gidNumber`, and `comments` to `Uid`, `Gid`, and scopedown `Policy` in the AWS Transfer session configuration.
+
+## Using `$default$` to set dynamic home directories
+
+One of the most common use cases for the `$default$` record is to support mapping user home directory based on the authenticated username. The `user` record below will map the lgoical directory `/` to the bucket and path `/[BUCKETNAME]/${transfer:UserName}`, where `${transfer:UserName}` is the session user. For added security, the `Policy` field creates a session policy that scopes permissions to only allow reads and writes to `/[BUCKETNAME]/${transfer:UserName}`, even if the policies attached to the IAM role in the `Role` field allow more broad access. 
+
+> [!NOTE]  
+> Remember to replace all instance of `[BUCKETNAME]` with the name of your bucket. Also replace `[IAM ROLE ARN]` with the ARN of a [Transfer Family IAM role ](https://docs.aws.amazon.com/transfer/latest/userguide/requirements-roles.html).
+
+```
+{
+  "user": {
+    "S": "$default$"
+  },
+  "identity_provider_key": {
+    "S": "domain2019.local"
+  },
+  "config": {
+    "M": {
+      "HomeDirectoryDetails": {
+        "L": [
+          {
+            "M": {
+              "Entry": {
+                "S": "/"
+              },
+              "Target": {
+                "S": "/[BUCKETNAME]/${transfer:UserName}"
+              }
+            }
+          }
+        ]
+      },
+      "HomeDirectoryType": {
+        "S": "LOGICAL"
+      },
+      "Policy": {
+        "S": "{\n  \"Version\": \"2012-10-17\",\n  \"Statement\": [\n      {\n          \"Sid\": \"AllowListingOfUserFolder\",\n          \"Action\": [\n              \"s3:ListBucket\"\n          ],\n          \"Effect\": \"Allow\",\n          \"Resource\": [\n              \"arn:aws:s3:::[BUCKETNAME]\"\n          ],\n          \"Condition\": {\n              \"StringLike\": {\n                  \"s3:prefix\": [\n                      \"${transfer:UserName}/*\",\n                      \"${transfer:UserName}\"\n                  ]\n              }\n          }\n      },\n      {\n          \"Sid\": \"HomeDirObjectAccess\",\n          \"Effect\": \"Allow\",\n          \"Action\": [\n              \"s3:PutObject\",\n              \"s3:GetObject\",\n              \"s3:DeleteObjectVersion\",\n              \"s3:DeleteObject\",\n              \"s3:GetObjectVersion\",\n              \"s3:GetObjectACL\",\n              \"s3:PutObjectACL\"\n          ],\n          \"Resource\": \"arn:aws:s3:::[BUCKETNAME]/${transfer:UserName}/*\"\n       }\n  ]\n}"
+      },
+      "Role": {
+        "S": "[IAM ROLE ARN]"
+      }
+    }
+  },
+  "ipv4_allow_list": {
+    "SS": [
+      "0.0.0.0/0"
+    ]
+  }
+}
+```
 
 # AWS Transfer session settings inheritance
 When an AWS Transfer Family custom identity provider authenticates a user, it returns all session setup properties such as the `HomeDirectoryDetails`, `Role`, and `PosixProfile` . To maximize the flexibility, most of these values can be specified in the user record, identity provider record. Values can also be retrieved from some identity providers (i.e. the LDAP module supports retrieving `Uid` and `Gid` attributes). When a value is contained in multiple locations, there is an ordered inheritance/priority to merge the final values together. Below is the inheritance order, with 1 being the highest priority:
