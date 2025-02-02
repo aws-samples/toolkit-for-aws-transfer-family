@@ -311,6 +311,19 @@ def handle_auth(
             raise LdapIdpModuleError(
                 f"LDAP attribute {ldap_attributes['Policy']} for property 'Policy' was empty or missing. Enable debug logging adn check LDAP response. To ignore, use the ignore_missing_attributes setting in the identity provider config."
             )
+        
+    if "PublicKeys" in ldap_attributes:
+        if not ldap_resolved_attributes["PublicKeys"] is None:
+            logger.info("Applying PublicKeys from LDAP Attributes")
+            response_data["PublicKeys"] = json.loads(ldap_resolved_attributes["PublicKeys"])
+        elif ldap_ignore_missing_attributes:
+            logger.warning(
+                f"LDAP attribute {ldap_attributes['PublicKeys']} for 'PublicKeys' was empty of missing. Skipping."
+            )
+        else:
+            raise LdapIdpModuleError(
+                f"LDAP attribute {ldap_attributes['PublicKeys']} for property 'PublicKeys' was empty or missing. Enable debug logging adn check LDAP response. To ignore, use the ignore_missing_attributes setting in the identity provider config."
+            )        
 
     if "Uid" in ldap_attributes and "Gid" in ldap_attributes:
         if (
