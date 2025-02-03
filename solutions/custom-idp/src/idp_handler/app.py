@@ -143,6 +143,11 @@ def lambda_handler(event, context):
         raise IdpHandlerException(
             f"Identity provider {identity_provider} is not defined in the table {IDENTITY_PROVIDERS_TABLE}."
         )
+    
+    if identity_provider_record.get('disabled', False):
+        raise IdpHandlerException(
+                f"Identity provider {identity_provider} is disabled."
+            )
 
     # Check IP allow list for IdP
     identity_provider_ipv4_allow_list = identity_provider_record.get(
@@ -300,6 +305,11 @@ def lambda_handler(event, context):
             response_data["HomeDirectoryDetails"] = json.dumps(
                 filtered_home_directory_details
             )
+
+    # Strip "\n" from Public Key strings. Sometimes they are added unintentionally when copying from terminal
+    if len(response_data.get("PublicKeys", [])) > 0:
+        for i, key in enumerate(response_data["PublicKeys"]):
+            response_data["PublicKeys"][i] = key.replace("\\n", "")
 
     # An extra check to make sure we've really authenticated, prevent accidental authentication. There should always be either at least 1 public key in response, or 'password' authentication should have been used.
     if (
