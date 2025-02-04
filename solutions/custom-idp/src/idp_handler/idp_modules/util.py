@@ -19,7 +19,7 @@ def get_log_level():
 logger = logging.getLogger(__name__)
 logger.setLevel(get_log_level())
 
-boto3_config = Config(retries={"max_attempts": 10, "mode": "standard"})
+boto3_config = Config(retries={"max_attempts": 5, "mode": "standard"}, connect_timeout=5)
 
 
 class IdpModuleError(Exception):
@@ -27,12 +27,9 @@ class IdpModuleError(Exception):
 
     pass
 
-
 class AuthenticationMethod(Enum):
     PASSWORD = 1
     PUBLIC_KEY = 2
-
-
 
 @tracer.capture_method
 def get_secret(secret_id):

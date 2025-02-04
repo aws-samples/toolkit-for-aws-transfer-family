@@ -155,7 +155,9 @@ The AWS Transfer Family Custom IdP Solution is deployed using a Serverless Appli
 
 ## Prerequisites
 Before deploying the solution, you will need the following: 
-* A Virtual Private Cloud (VPC) with private subnets with either internet connectivity via NAT Gateway, or a DynamoDB Gateway Endpoint. 
+* A Virtual Private Cloud (VPC) with private subnets with either:
+  * Internet connectivity via NAT Gateway
+  * VPC endpoints for DynamoDB, Security Token Service (STS), and Secrets Manager.
 * Appropriate IAM permissions to deploy the `custom-idp.yaml` CloudFormation template, including but not limited to creating CodePipeline and CodeBuild projects, IAM roles, and IAM policies.
 
 > [!IMPORTANT]  
@@ -192,7 +194,7 @@ Before deploying the solution, you will need the following:
     | **CreateVPC** | **REQUIRED**. Set to *`true`* if you you would like the solution to create a VPC for you, otherwise *`false`* | `true` or `false`|
     | **VPCCIDR** | **CONDITIONALLY REQUIRED**. Must be set if `CreateVPC` is `true`. The CIDR to use for when creating a new VPC. The CIDR should be at least a /24 and will be divided evenly across 4 subnets. Required if CreateVPC is set.  | `true` or `false`|   
     | **VPCId** | **CONDITIONALLY REQUIRED**. Must be set if `CreateVPC` is `false`. The ID of the VPC to deploy the custom IDP solution into. The VPC specified should have network connectivity to any IdPs that will used for authentication.  | *A VPC ID, i.e. `vpc-abc123def456`* |    
-    | **Subnets** | **CONDITIONALLY REQUIRED**. Must be set if `CreateVPC` is `false`. A list of subnet IDs to attach the Lambda function to. The Lambda is attached to subnets in order to allow private communication to IdPs such as LDAP servers or Active Directory domain controllers. At least one subnet must be specified, and all subnets must be in the same VPC specified above. **IMPORTANT**: The subnets must be able to reach DynamoDB service endpoints. If using public IdP such as Okta, the subnet must also have a route to a NAT Gateway that can forward requests to the internet. *Using a public subnet will not work because Lambda network interfaces are not assigned public IP addresses*.  | *comma-separated list of subnet IDs, i.e. `subnet-123abc,subnet-456def`* |
+    | **Subnets** | **CONDITIONALLY REQUIRED**. Must be set if `CreateVPC` is `false`. A list of subnet IDs to attach the Lambda function to. The Lambda is attached to subnets in order to allow private communication to IdPs such as LDAP servers or Active Directory domain controllers. At least one subnet must be specified, and all subnets must be in the same VPC specified above. **IMPORTANT**: The subnets must be able to reach DynamoDB, STS, and Secrets Manager service endpoints. If using public IdP such as Okta, the subnet must also have a route to a NAT Gateway that can forward requests to the internet. *Using a public subnet will not work because Lambda network interfaces are not assigned public IP addresses*.  | *comma-separated list of subnet IDs, i.e. `subnet-123abc,subnet-456def`* |
     | **SecurityGroups** | **CONDITIONALLY REQUIRED**. Must be set if `CreateVPC` is false. A list of security group IDs to assign to the Lambda function. This is used to control inbound and outbound access to/from the ENI the Lambda function uses for network connectivity. At least one security group must be specified and the security group must belong to the VPC specified above. | *comma-separated list of Security Group IDs, i.e. `sg-abc123`* |
     | **UserNameDelimiter**  | The delimiter to use when specifying both the username and IdP name during login. It is recommended that `@@` be used to avoid issues with parsing email addresses, e.g. `[username]@@[IdP-name]`. Currently, only the `@` character is supported due to validation checks that AWS Transfer Family performs on the username.  | **`@@`** |    
     | **SecretsManagerPermissions** | Set to *`true`* if you will use the Secrets Manager authentication module, otherwise *`false`* | `true` or `false`|
@@ -2361,7 +2363,7 @@ Follow these same steps to return the **LogLevel** setting to `INFO` after finis
 
 * **After deploying the solution, authentication requests fail and/or the Lambda function logs show timeouts.**
 
-  Verify the custom IdP solution has been configured to use subnets in a VPC that can reach DynamoDB and IdP targets. Also verify the selected security groups have outbound rules that permit traffic to reach these targets. One way to verify this is to launch an EC2 instance WITHOUT a public IP address in the subnets and attempt to reach the targets. For example, using curl to send a request to the DynamoDB regional endpoint should return an HTTP status code like the one below and not timeout: 
+  Verify the custom IdP solution has been configured to use subnets in a VPC that can reach DynamoDB, Security Token Service (STS) and Secrets Manager service endpoints. The funciton must also be able to reach any IdP target endpoints, such as Okta public endpoints or LDAP servers (depending on IdP configuration). Also verify the selected security groups have outbound rules that permit traffic to reach these targets. One way to verify this is to launch an EC2 instance WITHOUT a public IP address in the subnets and attempt to reach the targets. For example, using curl to send a request to the DynamoDB regional endpoint should return an HTTP status code like the one below and not timeout: 
   
   ```
   ➜  ~ curl https://dynamodb.[REGION].amazonaws.com -v
@@ -2404,6 +2406,10 @@ Follow these same steps to return the **LogLevel** setting to `INFO` after finis
   * Connection #0 to host dynamodb.us-east-1.amazonaws.com left intact
   healthy: dynamodb.us-east-1.amazonaws.com %
   ``` 
+
+  Repeat the same steps for `sts.[REGION].amazonaws.com` and `secretsmanager.[REGOIN].amazonaws.com`. 
+
+  If these requests are successful, use the EC2 instance to verify the configured identity provider is reachable. 
 
 # FAQ
 * **Can I connect and use multiple identity providers using the same custom IdP deployment?**
