@@ -12,6 +12,7 @@ from aws_lambda_powertools import Tracer
 tracer = Tracer()
 
 import boto3
+import botocore
 from boto3.dynamodb.conditions import Key
 from idp_modules import util
 
@@ -19,16 +20,19 @@ from idp_modules import util
 logger = logging.getLogger(__name__)
 logger.setLevel(util.get_log_level())
 
-# dynamodb init
+
+os.environ["AWS_STS_REGIONAL_ENDPOINTS"] = "regional"
+
+AWS_REGION = os.environ.get("AWS_REGION", os.environ.get("AWS_DEFAULT_REGION", ""))
+
 USERS_TABLE_ID = os.environ["USERS_TABLE"]
 IDENTITY_PROVIDERS_TABLE_ID = os.environ["IDENTITY_PROVIDERS_TABLE"]
 USER_NAME_DELIMITER = os.environ["USER_NAME_DELIMITER"]
 
-USERS_TABLE = boto3.resource("dynamodb").Table(USERS_TABLE_ID)
-IDENTITY_PROVIDERS_TABLE = boto3.resource("dynamodb").Table(IDENTITY_PROVIDERS_TABLE_ID)
+ACCOUNT_ID = boto3.client('sts', config=util.boto3_config).get_caller_identity().get('Account')
+USERS_TABLE = boto3.resource("dynamodb", config=util.boto3_config).Table(USERS_TABLE_ID)
+IDENTITY_PROVIDERS_TABLE = boto3.resource("dynamodb",config=util.boto3_config).Table(IDENTITY_PROVIDERS_TABLE_ID)
 
-ACCOUNT_ID = boto3.client('sts').get_caller_identity().get('Account')
-AWS_REGION = os.environ.get("AWS_REGION", os.environ.get("AWS_DEFAULT_REGION", ""))
 
 class IdpHandlerException(Exception):
     """Used to raise handler exceptions"""
