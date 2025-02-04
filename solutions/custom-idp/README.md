@@ -2409,7 +2409,7 @@ Follow these same steps to return the **LogLevel** setting to `INFO` after finis
 
   Repeat the same steps for `sts.[REGION].amazonaws.com` and `secretsmanager.[REGOIN].amazonaws.com`. 
 
-  If these requests are successful, use the EC2 instance to verify the configured identity provider is reachable.
+  If these requests are successful, use the EC2 instance to verify the configured identity provider is reachable. 
 
 # FAQ
 * **Can I connect and use multiple identity providers using the same custom IdP deployment?**
