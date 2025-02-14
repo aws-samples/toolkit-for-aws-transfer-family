@@ -1211,13 +1211,14 @@ When a StringSet is used, multiple servers can be specified. These addresses wil
 
 **config/domain**
 
-The DNS or NETBIOS domain name of the Active Directory domain. For example, `domain.com` or `DOMAIN`. 
+The DNS FQDN or NETBIOS domain name of the Active Directory domain. For example, `domain.com` or `DOMAIN`.
 
-This value must be set when connecting to Active Directory for authentication to succeed.
+> [!IMPORTANT]
+> This value must be set when connecting to Active Directory for authentication to succeed. It is recommended that the DNS FQDN be used instead of the NETBIOS domain name.
 
-***Type:*** Number
+***Type:*** String
 
-***Constraints:*** Must be a valid port number
+***Constraints:*** Must be a valid DNS or NETBIOS domain name
 
 ***Required:*** Yes, if connecting to Active Directory
 
@@ -1353,9 +1354,18 @@ For example, if you wish to pass a `Uid` and `Gid` from AD or LDAP to AWS Transf
 > [!NOTE]  
 > Any attributes returned will override corresponding values that have been specified in the user's record from the `users` table. 
 
+You can also retrieve `PublicKeys` from LDAP attributes. Note that the AD/LDAP attribute value returned must be formatted as a valid JSON list. For example:
+
+```json
+["ssh-ed25519 AAAAC3Nz...."]
+```
+
+> [!NOTE]
+> While you may include multiple keys in the `PublicKeys` list, but the list may be bound by the maximum length of the LDAP attribute field that is used. Also ensure there are no control characters such as line breaks in the value.
+
 ***Type:*** Map
 
-***Constraints:*** Only `Gid`, `Uid`, `Policy`, and `Role` are supported.
+***Constraints:*** Only `Gid`, `Uid`, `Policy`, `PublicKeys`, and `Role` are supported.
 
 ***Required:*** No
 
@@ -1404,6 +1414,9 @@ When set to `false` and the attribute is missing or empty in the user's LDAP obj
       },
       "port": {
         "N": "636"
+      },
+      "domain" {
+        "S": "example.com"
       },
       "search_base": {
         "S": "DC=example,DC=com"
