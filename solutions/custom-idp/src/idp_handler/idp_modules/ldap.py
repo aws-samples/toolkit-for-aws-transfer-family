@@ -93,7 +93,7 @@ def handle_auth(
     ldap_attribute_query_list = []
 
     # If this is a password-based authentication flow, public keys must not be returned in the response to AWS Transfer Family, we it will be filtered out in the LDAP reques to avoid unnecessary retrieval.
-    if util.AuthenticationMethod.PASSWORD and "PublicKeys" in ldap_attributes: 
+    if authn_method == util.AuthenticationMethod.PASSWORD and "PublicKeys" in ldap_attributes: 
         ldap_attributes.pop("PublicKeys")
 
     for attribute in ldap_attributes:
