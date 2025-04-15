@@ -53,13 +53,17 @@ To get started, review the [Solution Overview](#solution-overview), then followi
       - [Parameters](#parameters-6)
       - [Example](#example-5)
     - [Secrets Manager](#secrets-manager)
+      - [DynamoDB Record Schema](#dynamodb-record-schema-7)
+      - [Parameters](#parameters-7)
+      - [Secret Format](#secret-format)
+      - [Example](#example-6)
 - [Define a `$default$` user record](#define-a-default-user-record)
   - [Using `$default$` to set dynamic home directories](#using-default-to-set-dynamic-home-directories)
 - [AWS Transfer session settings inheritance](#aws-transfer-session-settings-inheritance)
-    - [Example](#example-6)
+    - [Example](#example-7)
 - [AWS Transfer session configuration variables](#aws-transfer-session-configuration-variables)
     - [Supported variables](#supported-variables)
-  - [Example](#example-7)
+  - [Example](#example-8)
 - [Modifying/updating solution parameters](#modifyingupdating-solution-parameters)
   - [Updating the solution](#updating-the-solution)
   - [Uninstall the solution](#uninstall-the-solution)
@@ -1915,9 +1919,136 @@ The following is an example of a user record that contains public keys that are 
 ### Secrets Manager
 
 > [!IMPORTANT] 
-> This module is being considered for deprecation. Storing passwords with reversible encryption is not recommended. We recommend using the Argon2 module instead. 
-> 
-> We're working on creating documentation for this module. Please create an issue if you have any questions.
+> This module is being considered for deprecation. Storing passwords with reversible encryption is not recommended. We recommend using the `argon2` module instead, which stores irreversible password hashes.
+
+The `secrets_manager` module supports authentication using credentials stored in AWS Secrets Manager. It supports both password and public key authentication methods, with the ability to store public keys either in the user's main secret or in a separate key-specific secret.
+
+#### DynamoDB Record Schema
+```json
+{
+  "provider": {
+    "S": "[provider name]"
+  },
+  "config": {
+    "M": {
+      "secret_prefix": {
+        "S": "[prefix for secrets]"
+      }
+    }
+  },
+  "module": {
+    "S": "secrets_manager"
+  },
+  "public_key_support": {
+    "BOOL": [true or false]
+  }       
+}
+```
+
+#### Parameters
+
+**provider**
+
+A name used for referencing the provider in the `users` table. This value is also used when users specify an identity provider during authentication (e.g. `username@provider`).
+
+***Type:*** String
+
+***Constraints:*** None
+
+***Required:*** Yes
+
+**module**
+
+The name of the Secrets Manager module that will be loaded to perform authentication. **This should be set to `secrets_manager`.**
+
+***Type:*** String
+
+***Constraints:*** None
+
+***Required:*** Yes
+
+**config/secret_prefix**
+
+The prefix to use when looking up secrets in AWS Secrets Manager. The module will look for secrets using the pattern `{prefix}{username}` for the main secret and optionally `{prefix}{username}/keys` for public keys.
+
+***Type:*** String
+
+***Constraints:*** Must be a valid AWS Secrets Manager secret name prefix
+
+***Required:*** No
+
+***Default:*** `SFTP/`
+
+**public_key_support**
+
+Indicates that the identity provider supports handling public key authentication and should be used for public key requests. When set to `true`, the Secrets Manager module will receive public key authentication requests and attempt to retrieve `PublicKeys` from Secrets Manager for the user. When set to `false`, the custom IdP solution will automatically use route public key authentication requests to the `public_key` module and lookup user public key in the `config/PublicKeys` field of the user record in DynamoDB. 
+
+> [!IMPORTANT] 
+> We recommend setting this to `false` and storing public keys in the user record.
+
+***Type:*** Boolean
+
+***Required:*** No
+
+***Default:*** `false`
+
+#### Secret Format
+The module expects secrets to be stored in JSON format. For password authentication, the secret should contain a `Password` field. For public key authentication, the secret should contain a `PublicKeys` field with either a JSON list or string representation of a list containing the public keys.
+
+Main secret format:
+```json
+{
+    "Password": "userpassword",
+    "PublicKeys": [
+        "ssh-rsa AAAA...",
+        "ssh-ed25519 AAAA..."
+    ]
+}
+```
+
+Optional separate public keys secret format (`{prefix}{username}/keys`):
+```json
+{
+    "PublicKeys": [
+        "ssh-rsa AAAA...",
+        "ssh-ed25519 AAAA..."
+    ]
+}
+```
+
+#### Example
+
+The following example identity provider record configures the Secrets Manager module to:
+* Use the prefix `transfer/` when looking up secrets
+* Supports handling both password and public key authentication with the module.
+
+```json
+{
+  "provider": {
+    "S": "secrets"
+  },
+  "config": {
+    "M": {
+      "secret_prefix": {
+        "S": "transfer/"
+      }
+    }
+  },
+  "module": {
+    "S": "secrets_manager"
+  },
+  "public_key_support": {
+    "BOOL": true
+  }     
+}
+```
+
+For this configuration, if a user "jsmith" attempts to authenticate, the module will:
+1. Look for a secret named `transfer/jsmith`
+2. For password authentication, validate the provided password against the `Password` field
+3. For public key authentication, look for public keys in:
+   - The `PublicKeys` field of the main secret
+   - If not found, look in a secret named `transfer/jsmith/keys`
 
 
 # Define a `$default$` user record
