@@ -21,6 +21,7 @@ To get started, review the [Solution Overview](#solution-overview), then followi
   - [Define users](#define-users)
   - [Test the provider](#test-the-provider)
   - [Next steps](#next-steps)
+  - [Server ID filtering examples](#server-id-filtering-examples)
 - [Getting help](#getting-help)
 - [User record reference](#user-record-reference)
   - [DynamoDB Record Schema](#dynamodb-record-schema)
@@ -28,6 +29,8 @@ To get started, review the [Solution Overview](#solution-overview), then followi
 - [Identity provider modules](#identity-provider-modules)
   - [How identity provider modules work](#how-identity-provider-modules-work)
   - [Identity provider module reference](#identity-provider-module-reference)
+    - [DynamoDB Record Schema](#dynamodb-record-schema-8)
+    - [Parameters](#parameters-8)
     - [Argon2](#argon2)
       - [DynamoDB Record Schema](#dynamodb-record-schema-1)
       - [Parameters](#parameters-1)
@@ -485,6 +488,12 @@ Each user record in DynamoDB must follow the schema below to be valid. Some fiel
         "[CIDR]",
         "[CIDR]"
       ]
+    },
+    "server_id_allow_list": {
+      "SS": [
+        "s-[SERVER_ID]",
+        "s-[SERVER_ID]"
+      ]
     }
   }
 ```
@@ -700,6 +709,33 @@ The format is:
 
 ***Required:*** No
 
+**server_id_allow_list**
+
+A list of AWS Transfer Family server IDs that the user is allowed to authenticate to. This provides an additional layer of access control, allowing administrators to restrict which Transfer Family servers a user can access. For example, you might want to allow certain users to access only development servers while restricting access to production servers.
+
+Server IDs follow the format `s-` followed by 17 hexadecimal characters (e.g., `s-1234567890abcdef0`). Multiple server IDs can be specified in the string set.
+
+The format is:
+
+```json
+    "server_id_allow_list": {
+      "SS": [
+        "s-1234567890abcdef0",
+        "s-abcdef1234567890"
+      ]
+    }
+```
+
+When a user attempts to authenticate, the Lambda function validates that the server ID from the authentication request is in the user's `server_id_allow_list`. If the server ID is not in the list, authentication is rejected before any identity provider checks are performed.
+
+***Type:*** StringSet
+
+***Constraints:*** Must be a non-empty StringSet of valid AWS Transfer Family server IDs
+
+***Required:*** No
+
+***Validation Order:*** User server ID validation occurs first, before identity provider validation. This ensures efficient use of resources by rejecting unauthorized users early in the authentication flow.
+
 # Identity provider modules
 This section describes how the identity provider modules work and describes the module-specific parameters that are used in each module's configuration. 
 
@@ -712,6 +748,126 @@ In the `users` table, each user has a corresponding `provider` property that ind
 Any module-specific settings are stored in the `config` value of the record within the `identity_providers` table. This is a DynamoDB `Map` value that can contain multiple nested values. 
 
 ## Identity provider module reference
+
+Each identity provider record in DynamoDB must follow the general schema below. Module-specific configuration settings are stored in the `config` attribute and are documented in each module's section.
+
+### DynamoDB Record Schema
+```json
+{
+  "provider": {
+    "S": "[provider name]"
+  },
+  "module": {
+    "S": "[module name]"
+  },
+  "config": {
+    "M": {
+      "[module-specific settings]": {}
+    }
+  },
+  "ipv4_allow_list": {
+    "SS": [
+      "[CIDR]",
+      "[CIDR]"
+    ]
+  },
+  "server_id_allow_list": {
+    "SS": [
+      "s-[SERVER_ID]",
+      "s-[SERVER_ID]"
+    ]
+  },
+  "public_key_support": {
+    "BOOL": true
+  }
+}
+```
+
+### Parameters
+
+**provider**
+
+A name used for referencing the identity provider in the `users` table. This value is also used when users specify an identity provider during authentication (e.g., `username@provider`).
+
+***Type:*** String
+
+***Constraints:*** None
+
+***Required:*** Yes
+
+**module**
+
+The name of the identity provider module that will be loaded to perform authentication. Valid values are: `argon2`, `cognito`, `entra`, `ldap`, `okta`, `public_key`, or `secrets_manager`.
+
+***Type:*** String
+
+***Constraints:*** Must be a valid module name
+
+***Required:*** Yes
+
+**config**
+
+A map containing module-specific configuration settings. The structure and required fields vary by module. See each module's documentation section for details on what should be included in the `config` attribute.
+
+***Type:*** Map
+
+***Constraints:*** Module-specific
+
+***Required:*** Yes (though some modules may have an empty config map)
+
+**ipv4_allow_list**
+
+A list of IPv4 CIDR-notation addresses that are allowed to authenticate using this identity provider. This provides network-level access control at the identity provider level.
+
+The format is:
+
+```json
+    "ipv4_allow_list": {
+      "SS": [
+        "10.0.0.0/8",
+        "192.168.1.0/24"
+      ]
+    }
+```
+
+***Type:*** StringSet
+
+***Constraints:*** Must be a non-empty StringSet of valid CIDR-notation IPv4 addresses
+
+***Required:*** No
+
+**server_id_allow_list**
+
+A list of AWS Transfer Family server IDs that are allowed to use this identity provider for authentication. Server IDs follow the format `s-` followed by 17 hexadecimal characters (e.g., `s-1234567890abcdef0`).
+
+The format is:
+
+```json
+    "server_id_allow_list": {
+      "SS": [
+        "s-1234567890abcdef0",
+        "s-abcdef1234567890"
+      ]
+    }
+```
+
+***Type:*** StringSet
+
+***Constraints:*** Must be a non-empty StringSet of valid AWS Transfer Family server IDs
+
+***Required:*** No
+
+**public_key_support**
+
+Indicates whether this identity provider module supports public key authentication in addition to password authentication. When set to `true`, the module can handle both authentication methods.
+
+***Type:*** Boolean
+
+***Constraints:*** Must be `true` or `false`
+
+***Required:*** No (defaults to `false` if not specified)
+
+---
 
 ### Argon2
 The Argon2 module allows you to generate and use [Argon2](https://en.wikipedia.org/wiki/Argon2) hashed passwords that are stored in the `user` record for authentication. 
@@ -2550,6 +2706,22 @@ Follow these same steps to return the **LogLevel** setting to `INFO` after finis
 
   If these requests are successful, use the EC2 instance to verify the configured identity provider is reachable. 
 
+* **Authentication fails with "User [username] is not allowed to authenticate to server [serverId]" or "Server [serverId] is not allowed to use identity provider [provider]"**
+
+  These errors indicate that server ID filtering is configured and the authentication request is being rejected. To troubleshoot:
+
+  1. Verify the server ID in the error message matches the server the user is connecting to. You can find the server ID in the AWS Transfer console or by running `aws transfer describe-server --server-id <server-id>`.
+  
+  2. Check the user record in the `[StackName]_users` DynamoDB table. If a `server_id_allow_list` attribute exists, verify it contains the server ID from step 1.
+  
+  3. Check the identity provider record in the `[StackName]_identity_providers` DynamoDB table. If a `server_id_allow_list` attribute exists, verify it contains the server ID from step 1.
+  
+  4. Remember that if both the user and identity provider have `server_id_allow_list` attributes, the server ID must be present in both lists for authentication to succeed.
+  
+  5. To disable server ID filtering for a user or identity provider, remove the `server_id_allow_list` attribute from the DynamoDB record.
+
+  6. Check the Lambda function logs in CloudWatch for detailed information about which validation failed (user or identity provider level).
+
 # FAQ
 * **Can I connect and use multiple identity providers using the same custom IdP deployment?**
   
@@ -2582,7 +2754,11 @@ Follow these same steps to return the **LogLevel** setting to `INFO` after finis
   Yes. With Password AND Key authentication configured on an AWS Transfer Family server, the public keys listed in the `PublicKeys` attribute of the user record will be used automatically during the key authentication request, then the identity provider module associated will handle the password request. For an example of how to populate the `PublicKeys` attribute, see the [Public Key](#public-key) identity provider module reference.
   
   > [!NOTE]  
-  > Some identity provider modules may be able to support both password and key based authentication, in which case the `public_key_support` attribute will be set to `true` in the `identity_providers` record. In this case, the module may not use the `PublicKeys` attribute and retrieve user public keys from another source. 
+  > Some identity provider modules may be able to support both password and key based authentication, in which case the `public_key_support` attribute will be set to `true` in the `identity_providers` record. In this case, the module may not use the `PublicKeys` attribute and retrieve user public keys from another source.
+
+* **How does server ID filtering work?**
+  
+  Server ID filtering allows you to restrict which AWS Transfer Family servers can use specific identity providers and which servers specific users can authenticate to. You can configure this by adding a `server_id_allow_list` attribute (containing one or more server IDs) to user records and/or identity provider records in DynamoDB. When configured, the Lambda function validates the incoming server ID against these allow lists before proceeding with authentication. This is useful for implementing defense-in-depth access controls and separating environments (e.g., development, staging, production). For detailed examples and configuration guidance, see the [Server ID filtering examples](#server-id-filtering-examples) section.
 
 # Tutorials
 

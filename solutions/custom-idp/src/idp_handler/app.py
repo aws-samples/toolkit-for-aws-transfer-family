@@ -56,6 +56,37 @@ def ip_in_cidr_list(ip_address, cidr_list):
     return False
 
 
+@tracer.capture_method
+def server_id_in_allow_list(server_id, allow_list):
+    """
+    Validates if a server ID is in the allow list.
+    
+    Args:
+        server_id: The server ID to validate (string)
+        allow_list: List or set of allowed server IDs (can be None or empty)
+    
+    Returns:
+        True if allow_list is None, empty, or contains the server_id
+        False if server_id is not in a non-empty allow_list
+    """
+    # If allow_list is None or empty, allow all servers
+    if not allow_list or len(allow_list) == 0:
+        logger.debug(f"Server ID allow list is empty or None, allowing server {server_id}")
+        return True
+    
+    # Check if server_id is in the allow_list
+    for allowed_server_id in allow_list:
+        logger.debug(f"Checking allowed server ID: {allowed_server_id}")
+        if server_id == allowed_server_id:
+            logger.info(f"Matched server ID {server_id} to allowed server ID {allowed_server_id}")
+            return True
+        else:
+            logger.debug(f"Server ID {server_id} doesn't match allowed server ID {allowed_server_id}")
+    
+    logger.debug(f"Server ID {server_id} not found in allow list")
+    return False
+
+
 @tracer.capture_lambda_handler
 def lambda_handler(event, context):
     response_data = {}
@@ -68,6 +99,7 @@ def lambda_handler(event, context):
     input_username = event["username"].lower()
     logger.info(f"Username: {input_username}, ServerId: {event['serverId']}")
     tracer.put_annotation(key="transfer_user", value=input_username)
+    tracer.put_annotation(key="server_id", value=event['serverId'])
 
 
     # Parse the username to get user and identity provider (if specified)
@@ -122,6 +154,18 @@ def lambda_handler(event, context):
 
     logger.info(f"user_record: {user_record}")
 
+    # Check server ID allow list for user
+    user_server_id_allow_list = user_record.get("server_id_allow_list", None)
+    logger.debug(f"User Server ID Allow List: {user_server_id_allow_list}")
+    if not user_server_id_allow_list or len(user_server_id_allow_list) == 0:
+        logger.info("No user server ID allow list is present, skipping check.")
+    else:
+        if not server_id_in_allow_list(event['serverId'], user_server_id_allow_list):
+            raise IdpHandlerException(
+                f"User {username} is not allowed to authenticate to server {event['serverId']}."
+            )
+        logger.info(f"Server ID {event['serverId']} is authorized for user {username}.")
+
     source_ip = event["sourceIp"]
 
     # Check IP allow list for user
@@ -152,6 +196,18 @@ def lambda_handler(event, context):
         raise IdpHandlerException(
                 f"Identity provider {identity_provider} is disabled."
             )
+
+    # Check server ID allow list for identity provider
+    identity_provider_server_id_allow_list = identity_provider_record.get("server_id_allow_list", None)
+    logger.debug(f"Identity Provider Server ID Allow List: {identity_provider_server_id_allow_list}")
+    if not identity_provider_server_id_allow_list or len(identity_provider_server_id_allow_list) == 0:
+        logger.info("No identity provider server ID allow list is present, skipping check.")
+    else:
+        if not server_id_in_allow_list(event['serverId'], identity_provider_server_id_allow_list):
+            raise IdpHandlerException(
+                f"Server {event['serverId']} is not allowed to use identity provider {identity_provider}."
+            )
+        logger.info(f"Server ID {event['serverId']} is authorized for identity provider {identity_provider}.")
 
     # Check IP allow list for IdP
     identity_provider_ipv4_allow_list = identity_provider_record.get(
