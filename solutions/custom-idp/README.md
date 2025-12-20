@@ -62,6 +62,7 @@ To get started, review the [Solution Overview](#solution-overview), then followi
 - [Define a `$default$` user record](#define-a-default-user-record)
   - [Using `$default$` to set dynamic home directories](#using-default-to-set-dynamic-home-directories)
 - [Filtering logical directories by region and Transfer Family server](#filtering-logical-directories-by-region-and-transfer-family-server)
+- [Username Mapping](#username-mapping)
 - [AWS Transfer session settings inheritance](#aws-transfer-session-settings-inheritance)
     - [Example](#example-7)
 - [AWS Transfer session configuration variables](#aws-transfer-session-configuration-variables)
@@ -431,7 +432,10 @@ Each user record in DynamoDB must follow the schema below to be valid. Some fiel
     },
     "identity_provider_key": {
       "S": "[module]"
-    },  
+    },
+    "idp_username": {
+      "S": "[backend identity provider username]"
+    },
     "config": {
       "M": {
         "HomeDirectoryDetails": {
@@ -523,6 +527,20 @@ A name used for referencing the identity provider in the `identity_providers` ta
 ***Constraints:*** None
 
 ***Required:*** Yes
+
+**idp_username**
+
+The username to use when authenticating against the backend identity provider. When this field is present and non-empty, the Lambda handler will pass this value to the identity provider module instead of the Transfer Family username. This enables username mapping scenarios where the Transfer Family username differs from the backend identity provider username.
+
+If this field is not present or is empty, the Transfer Family username (from the `user` field) will be used for backend authentication.
+
+For detailed configuration examples, use cases, and troubleshooting guidance, see the [Username Mapping](#username-mapping) section.
+
+***Type:*** String
+
+***Constraints:*** Must be a valid username for the backend identity provider. No validation is performed by the Lambda function.
+
+***Required:*** No
 
 **config/HomeDirectoryDetails**
 
@@ -2558,6 +2576,45 @@ If users are seeing unexpected directories or missing directories:
 6. Check for warning messages in logs if all entries are filtered out
 
 See [Common issues](#common-issues) for more troubleshooting guidance.
+
+# Username Mapping
+
+The username mapping feature allows you to authenticate users with AWS Transfer Family using one username while authenticating against your backend identity provider with a different username. This is useful when your backend identity provider uses case-sensitive usernames or when backend usernames contain characters (such as `+`) that are not supported by AWS Transfer Family username constraints.
+
+To enable username mapping, add the optional `idp_username` field to a user record in the `[StackName]_users` DynamoDB table. When this field is present and non-empty, the Lambda handler will pass this value to the identity provider module for authentication instead of the Transfer Family username. If the field is not present or empty, the Transfer Family username is used for backend authentication.
+
+> [!NOTE]  
+> The Transfer Family session always uses the original Transfer Family username (the `user` field), not the `idp_username`. This means session configuration variables like `${transfer:UserName}` and IAM policy variables will reference the Transfer Family username. The `idp_username` is only used internally for backend authentication and appears in CloudWatch logs for troubleshooting.
+
+## Example
+
+In this example, a user connects to Transfer Family with username `usertest`, but the backend Cognito identity provider uses the email address `user+test@example.com` for authentication. Transfer Family does not support the `+` character in usernames, but Cognito does:
+
+```json
+{
+  "user": "usertest",
+  "identity_provider_key": "cognito",
+  "idp_username": "user+test@example.com",
+  "config": {
+    "Role": "arn:aws:iam::123456789012:role/TransferRole",
+    "HomeDirectoryDetails": [
+      {
+        "Entry": "/",
+        "Target": "/my-bucket/${transfer:UserName}"
+      }
+    ],
+    "HomeDirectoryType": "LOGICAL"
+  }
+}
+```
+
+In this configuration:
+- The user connects to Transfer Family with username `usertest`
+- The system authenticates against Cognito using `user+test@example.com`
+- The Transfer Family session uses `usertest` for logging and file ownership
+- The home directory path resolves to `/my-bucket/usertest` (using the Transfer Family username)
+
+Username mapping is supported across all identity provider modules and is always optional. Existing user records without the `idp_username` field will continue to work unchanged.
 
 # AWS Transfer session settings inheritance
 When an AWS Transfer Family custom identity provider authenticates a user, it returns all session setup properties such as the `HomeDirectoryDetails`, `Role`, and `PosixProfile` . To maximize the flexibility, most of these values can be specified in the user record, identity provider record. Values can also be retrieved from some identity providers (i.e. the LDAP module supports retrieving `Uid` and `Gid` attributes). When a value is contained in multiple locations, there is an ordered inheritance/priority to merge the final values together. Below is the inheritance order, with 1 being the highest priority:
