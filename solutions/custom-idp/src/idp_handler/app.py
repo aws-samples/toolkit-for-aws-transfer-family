@@ -87,6 +87,35 @@ def server_id_in_allow_list(server_id, allow_list):
     return False
 
 
+@tracer.capture_method
+def resolve_username_for_idp(username, user_record):
+    """
+    Resolves the username to use for identity provider authentication.
+    
+    Args:
+        username: The Transfer Family username (from parsed input)
+        user_record: The DynamoDB user record
+    
+    Returns:
+        The username to use for IDP authentication (either idp_username or original username)
+    """
+    # Check if user_record contains idp_username field
+    idp_username = user_record.get("idp_username", "")
+    
+    # If idp_username is present and non-empty, use it
+    if idp_username and idp_username.strip():
+        logger.info(f"Username mapping: Transfer username='{username}', IDP username='{idp_username}'")
+        return idp_username
+    
+    # Log when idp_username is empty
+    if "idp_username" in user_record and not idp_username.strip():
+        logger.debug(f"idp_username field is empty, using Transfer username")
+    
+    # Otherwise, use the original Transfer username
+    logger.info(f"No username mapping configured, using Transfer username for IDP authentication")
+    return username
+
+
 @tracer.capture_lambda_handler
 def lambda_handler(event, context):
     response_data = {}
@@ -153,6 +182,10 @@ def lambda_handler(event, context):
             raise IdpHandlerException(f"no matching user records found")
 
     logger.info(f"user_record: {user_record}")
+
+    # Resolve username for identity provider authentication
+    idp_username = resolve_username_for_idp(username, user_record)
+    logger.debug(f"Resolved IDP username: {idp_username}")
 
     # Check server ID allow list for user
     user_server_id_allow_list = user_record.get("server_id_allow_list", None)
@@ -327,7 +360,7 @@ def lambda_handler(event, context):
 
         response_data = public_key.handle_auth(
             event=event,
-            parsed_username=parsed_username,
+            parsed_username=idp_username,
             user_record=user_record,
             identity_provider_record=identity_provider_record,
             response_data=response_data,
@@ -340,7 +373,7 @@ def lambda_handler(event, context):
         )
         response_data = identity_provider_module.handle_auth(
             event=event,
-            parsed_username=username,
+            parsed_username=idp_username,
             user_record=user_record,
             identity_provider_record=identity_provider_record,
             response_data=response_data,
