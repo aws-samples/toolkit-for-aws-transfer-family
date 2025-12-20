@@ -21,7 +21,6 @@ To get started, review the [Solution Overview](#solution-overview), then followi
   - [Define users](#define-users)
   - [Test the provider](#test-the-provider)
   - [Next steps](#next-steps)
-  - [Server ID filtering examples](#server-id-filtering-examples)
 - [Getting help](#getting-help)
 - [User record reference](#user-record-reference)
   - [DynamoDB Record Schema](#dynamodb-record-schema)
