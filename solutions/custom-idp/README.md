@@ -61,6 +61,7 @@ To get started, review the [Solution Overview](#solution-overview), then followi
       - [Example](#example-6)
 - [Define a `$default$` user record](#define-a-default-user-record)
   - [Using `$default$` to set dynamic home directories](#using-default-to-set-dynamic-home-directories)
+- [Filtering logical directories by region and Transfer Family server](#filtering-logical-directories-by-region-and-transfer-family-server)
 - [AWS Transfer session settings inheritance](#aws-transfer-session-settings-inheritance)
     - [Example](#example-7)
 - [AWS Transfer session configuration variables](#aws-transfer-session-configuration-variables)
@@ -527,7 +528,7 @@ A name used for referencing the identity provider in the `identity_providers` ta
 
 The list of `HomeDirectoryDetails` entries. These Logical directory mappings that specify which Amazon S3 or Amazon EFS paths and keys should be visible to your user and how you want to make them visible. You must specify the `Entry` and `Target` pair, where `Entry` is the directory displayed to the client and `Target` is the actual Amazon S3 or Amazon EFS path.
 
-Optionally, you can specify a StringSet of `regions` that can be used to filter out directories based on the region the Custom IdP solution is in. This is useful for multi-region deployments where the `users` and `identity_providers` tables are replicated to other regions via DynamoDB Global tables.
+Optionally, you can specify a StringSet of `regions` or `servers` attributes on individual directory entries to filter which directories are visible based on the AWS region or Transfer Family server. See [Filtering logical directories by region and Transfer Family server](#filtering-logical-directories-by-region-and-transfer-family-server) for complete details and examples.
 
 The format is:
 
@@ -546,7 +547,12 @@ The format is:
                   "SS": [
                     "[REGION_CODE]"
                   ]
-                },                    
+                },
+                "servers": {
+                  "SS": [
+                    "[SERVER_ID]"
+                  ]
+                }                    
               }
             },
             {
@@ -561,12 +567,71 @@ The format is:
                   "SS": [
                     "[REGION_CODE]"
                   ]
-                },                    
+                },
+                "servers": {
+                  "SS": [
+                    "[SERVER_ID]"
+                  ]
+                }                    
               }
             }            
           ]
         },
 ```
+
+**Filtering with `regions` and `servers` attributes:**
+
+Both `regions` and `servers` are optional filtering attributes that can be added to individual directory entries:
+
+- **`regions`**: A StringSet of AWS region codes (e.g., `us-east-1`, `eu-west-1`). When present, the directory entry will only be visible when the Custom IdP solution is running in one of the specified regions. This is useful for multi-region deployments with DynamoDB Global Tables.
+
+- **`servers`**: A StringSet of AWS Transfer Family server IDs (e.g., `s-1234567890abcdef0`). When present, the directory entry will only be visible when the user connects to one of the specified servers. This enables server-specific directory structures without duplicating user records.
+
+**Filter behavior:**
+- If an entry has no `regions` or `servers` attributes, it is visible on all servers in all regions
+- If an entry has only a `regions` attribute, it is filtered by region only
+- If an entry has only a `servers` attribute, it is filtered by server only
+- If an entry has both `regions` and `servers` attributes, BOTH filters must pass for the entry to be visible (the entry must match the region AND the server)
+- The `regions` and `servers` attributes are automatically removed from entries before the response is returned to AWS Transfer Family
+
+**Example use cases:**
+- **Production vs. Development servers**: Show production data directories only on production servers, and development data directories only on development servers
+- **Department-specific servers**: Show finance directories only on the finance server, and engineering directories only on the engineering server
+- **Multi-region with server filtering**: Combine both filters to show region-specific directories only on specific servers in each region
+
+**Example configuration with server filtering:**
+
+```json
+"HomeDirectoryDetails": {
+  "L": [
+    {
+      "M": {
+        "Entry": {"S": "/production-data"},
+        "Target": {"S": "/prod-bucket/data"},
+        "servers": {"SS": ["s-prod1234567890abc"]}
+      }
+    },
+    {
+      "M": {
+        "Entry": {"S": "/staging-data"},
+        "Target": {"S": "/staging-bucket/data"},
+        "servers": {"SS": ["s-stage234567890ab"]}
+      }
+    },
+    {
+      "M": {
+        "Entry": {"S": "/shared"},
+        "Target": {"S": "/shared-bucket/data"}
+      }
+    }
+  ]
+}
+```
+
+In this example:
+- `/production-data` is only visible when connecting to server `s-prod1234567890abc`
+- `/staging-data` is only visible when connecting to server `s-stage234567890ab`
+- `/shared` is visible on all servers (no `servers` attribute)
 
 ***Type:*** List[Map]
 
@@ -2356,6 +2421,144 @@ One of the most common use cases for the `$default$` record is to support mappin
 }
 ```
 
+# Filtering logical directories by region and Transfer Family server
+
+The Custom IdP solution supports filtering individual `HomeDirectoryDetails` entries based on the AWS region where the solution is deployed and/or the AWS Transfer Family server ID that the user is connecting to. This enables you to show different directory structures to users based on their connection context, without duplicating user records.
+
+## Overview
+
+Both `regions` and `servers` are optional filtering attributes that can be added to individual directory entries in `HomeDirectoryDetails`:
+
+- **`regions`**: A StringSet of AWS region codes (e.g., `us-east-1`, `eu-west-1`). When present, the directory entry will only be visible when the Custom IdP solution is running in one of the specified regions. This is useful for multi-region deployments with DynamoDB Global Tables.
+
+- **`servers`**: A StringSet of AWS Transfer Family server IDs (e.g., `s-1234567890abcdef0`). When present, the directory entry will only be visible when the user connects to one of the specified servers. This enables server-specific directory structures without duplicating user records.
+
+## Filter Behavior
+
+- If an entry has no `regions` or `servers` attributes, it is visible on all servers in all regions
+- If an entry has only a `regions` attribute, it is filtered by region only
+- If an entry has only a `servers` attribute, it is filtered by server only
+- If an entry has both `regions` and `servers` attributes, BOTH filters must pass for the entry to be visible (the entry must match the region AND the server)
+- The `regions` and `servers` attributes are automatically removed from entries before the response is returned to AWS Transfer Family
+
+## Use Cases
+
+**Production vs. Development servers**: Show production data directories only on production servers, and development data directories only on development servers
+
+**Department-specific servers**: Show finance directories only on the finance server, and engineering directories only on the engineering server
+
+**Multi-region with server filtering**: Combine both filters to show region-specific directories only on specific servers in each region
+
+**Geographic data segregation**: In multi-region deployments, ensure users only see data stored in their region
+
+## Example Configuration
+
+### Server Filtering Only
+
+This example shows different directories based on which server the user connects to:
+
+```json
+{
+  "user": {
+    "S": "jsmith"
+  },
+  "identity_provider_key": {
+    "S": "example.com"
+  },
+  "config": {
+    "M": {
+      "HomeDirectoryDetails": {
+        "L": [
+          {
+            "M": {
+              "Entry": {"S": "/production-data"},
+              "Target": {"S": "/prod-bucket/data"},
+              "servers": {"SS": ["s-prod1234567890abc"]}
+            }
+          },
+          {
+            "M": {
+              "Entry": {"S": "/staging-data"},
+              "Target": {"S": "/staging-bucket/data"},
+              "servers": {"SS": ["s-stage234567890ab"]}
+            }
+          },
+          {
+            "M": {
+              "Entry": {"S": "/shared"},
+              "Target": {"S": "/shared-bucket/data"}
+            }
+          }
+        ]
+      },
+      "HomeDirectoryType": {"S": "LOGICAL"},
+      "Role": {"S": "arn:aws:iam::123456789012:role/TransferUserRole"}
+    }
+  }
+}
+```
+
+**Result:**
+- When connecting to `s-prod1234567890abc`: User sees `/production-data` and `/shared`
+- When connecting to `s-stage234567890ab`: User sees `/staging-data` and `/shared`
+- `/shared` is visible on all servers (no `servers` attribute)
+
+### Combined Region and Server Filtering
+
+This example shows directories filtered by both region and server:
+
+```json
+{
+  "HomeDirectoryDetails": {
+    "L": [
+      {
+        "M": {
+          "Entry": {"S": "/us-prod"},
+          "Target": {"S": "/prod-us-east-1/data"},
+          "regions": {"SS": ["us-east-1"]},
+          "servers": {"SS": ["s-prod1234567890abc"]}
+        }
+      },
+      {
+        "M": {
+          "Entry": {"S": "/eu-prod"},
+          "Target": {"S": "/prod-eu-west-1/data"},
+          "regions": {"SS": ["eu-west-1"]},
+          "servers": {"SS": ["s-prod1234567890abc"]}
+        }
+      },
+      {
+        "M": {
+          "Entry": {"S": "/us-dev"},
+          "Target": {"S": "/dev-us-east-1/data"},
+          "regions": {"SS": ["us-east-1"]},
+          "servers": {"SS": ["s-dev9876543210xyz"]}
+        }
+      }
+    ]
+  }
+}
+```
+
+**Result:**
+- Production server in us-east-1: User sees `/us-prod`
+- Production server in eu-west-1: User sees `/eu-prod`
+- Development server in us-east-1: User sees `/us-dev`
+- Development server in eu-west-1: User sees nothing (no matching entries)
+
+## Troubleshooting
+
+If users are seeing unexpected directories or missing directories:
+
+1. Check the user record's `HomeDirectoryDetails` for `servers` and `regions` attributes
+2. Verify the server ID matches what's in the filter (find server ID in AWS Transfer console)
+3. Verify the region matches where the Custom IdP solution is deployed
+4. Enable DEBUG logging to see detailed filtering decisions in CloudWatch Logs
+5. Remember that both filters must pass when both attributes are present on an entry
+6. Check for warning messages in logs if all entries are filtered out
+
+See [Common issues](#common-issues) for more troubleshooting guidance.
+
 # AWS Transfer session settings inheritance
 When an AWS Transfer Family custom identity provider authenticates a user, it returns all session setup properties such as the `HomeDirectoryDetails`, `Role`, and `PosixProfile` . To maximize the flexibility, most of these values can be specified in the user record, identity provider record. Values can also be retrieved from some identity providers (i.e. the LDAP module supports retrieving `Uid` and `Gid` attributes). When a value is contained in multiple locations, there is an ordered inheritance/priority to merge the final values together. Below is the inheritance order, with 1 being the highest priority:
 
@@ -2480,6 +2683,7 @@ The following session variables are currently supported:
 | ----------- | -------------------------------------------------------------------------------- |
 | `{{AWS_ACCOUNT}}` | The 10-digit AWS Account ID that the custom IdP solution is deployed to.    |
 | `{{AWS_REGION}}`  | The region code (e.g. us-east-1) that the custom IdP solution is deployed to.    |
+| `{{SERVER_ID}}`   | The AWS Transfer Family server ID (e.g. s-1234567890abcdef0) that the user is connecting to. This is useful for creating server-specific IAM policies or directory paths. |
 | `{{USERNAME}}`    | The parsed username or the user the custom IdP solution is currently processing. <br /> **NOTE:** The built-in dynamic variable [`${transfer:UserName}](https://docs.aws.amazon.com/transfer/latest/userguide/users-policies-session.html) is recommended when dynamically specifying the username in `HomeDirectory`, `HomeDirectoryDetails`, and `Policy`.  |
 
 ## Example
@@ -2553,6 +2757,64 @@ If connecting to transfer-eu.company.com, the session settings returned to AWS T
     "HomeDirectoryType": "LOGICAL"
 }
 ```
+
+### Example: Using SERVER_ID for server-specific IAM policies
+
+The `{{SERVER_ID}}` variable can be used to create server-specific IAM policies, enabling fine-grained access controls based on which server a user connects to. This is particularly useful when you have separate servers for different environments (production, staging, development) or different departments.
+
+**Scenario:** An organization has separate AWS Transfer Family servers for production and development environments. They want to ensure that users can only access production S3 buckets when connecting through the production server, and development buckets when connecting through the development server.
+
+**Configuration:**
+* **Production server ID:** s-prod1234567890abc
+* **Development server ID:** s-dev9876543210xyz
+* **Production S3 bucket:** company-prod-files
+* **Development S3 bucket:** company-dev-files
+
+**User record with SERVER_ID in IAM policy:**
+
+```json
+{
+    "user": {
+        "S": "jsmith"
+    },
+    "identity_provider_key": {
+        "S": "example.com"
+    },
+    "config": {
+        "M": {
+            "Role": {
+                "S": "arn:aws:iam::123456789012:role/TransferUserRole"
+            },
+            "Policy": {
+                "S": "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Sid\":\"AllowListingOfUserFolder\",\"Effect\":\"Allow\",\"Action\":\"s3:ListBucket\",\"Resource\":\"arn:aws:s3:::company-{{SERVER_ID}}-files\",\"Condition\":{\"StringLike\":{\"s3:prefix\":[\"users/jsmith/*\"]}}},{\"Sid\":\"AllowUserFileAccess\",\"Effect\":\"Allow\",\"Action\":[\"s3:GetObject\",\"s3:PutObject\",\"s3:DeleteObject\"],\"Resource\":\"arn:aws:s3:::company-{{SERVER_ID}}-files/users/jsmith/*\"}]}"
+            },
+            "HomeDirectoryDetails": {
+                "L": [{
+                    "M": {
+                        "Entry": {"S": "/home"},
+                        "Target": {"S": "/company-{{SERVER_ID}}-files/users/jsmith"}
+                    }
+                }]
+            },
+            "HomeDirectoryType": {
+                "S": "LOGICAL"
+            }
+        }
+    }
+}
+```
+
+When the user connects to the production server (s-prod1234567890abc), the `{{SERVER_ID}}` variable is replaced with `prod`, resulting in:
+- Bucket access: `company-prod-files`
+- Home directory: `/company-prod-files/users/jsmith`
+- IAM policy allows access only to `company-prod-files`
+
+When the same user connects to the development server (s-dev9876543210xyz), the `{{SERVER_ID}}` variable is replaced with `dev`, resulting in:
+- Bucket access: `company-dev-files`
+- Home directory: `/company-dev-files/users/jsmith`
+- IAM policy allows access only to `company-dev-files`
+
+This approach ensures that users automatically get the correct permissions based on which server they connect to, without needing separate user records for each environment.
 
 
 
@@ -2720,6 +2982,26 @@ Follow these same steps to return the **LogLevel** setting to `INFO` after finis
   5. To disable server ID filtering for a user or identity provider, remove the `server_id_allow_list` attribute from the DynamoDB record.
 
   6. Check the Lambda function logs in CloudWatch for detailed information about which validation failed (user or identity provider level).
+
+* **User sees different directories than expected, or some directories are missing**
+
+  This may be caused by server filtering or region filtering on `HomeDirectoryDetails` entries. To troubleshoot:
+
+  1. Check the user record in the `[StackName]_users` DynamoDB table and review the `HomeDirectoryDetails` configuration.
+  
+  2. Look for `servers` attributes on individual directory entries. If present, the entry will only be visible when connecting to one of the specified server IDs.
+  
+  3. Look for `regions` attributes on individual directory entries. If present, the entry will only be visible when the Custom IdP solution is running in one of the specified regions.
+  
+  4. If both `servers` and `regions` attributes are present on an entry, BOTH filters must pass for the entry to be visible.
+  
+  5. Enable DEBUG logging (see [Setting the log level](#setting-the-log-level)) and check the Lambda function logs in CloudWatch. Look for log messages containing "Server filter" or "Region filter" to see which entries are being filtered out and why.
+  
+  6. Verify the server ID by checking the AWS Transfer console or running `aws transfer describe-server --server-id <server-id>`.
+  
+  7. To disable filtering for a specific entry, remove the `servers` and/or `regions` attributes from that entry in the DynamoDB record.
+
+  8. If all directory entries are filtered out, the user will see an empty directory list. Check the Lambda logs for a warning message indicating that no directories are available.
 
 # FAQ
 * **Can I connect and use multiple identity providers using the same custom IdP deployment?**

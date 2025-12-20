@@ -347,11 +347,34 @@ def lambda_handler(event, context):
             authn_method=authn_method,
         )
 
-    # HomeDirectoryDetails must be a stringified list, check if any paths have a region filter and apply the filter.
+    # HomeDirectoryDetails must be a stringified list, check if any paths have a server filter and apply the filter.
     if "HomeDirectoryDetails" in response_data:
         if type(response_data["HomeDirectoryDetails"]) == list:
-            filtered_home_directory_details = []
+            # Apply server filtering first
+            total_entries = len(response_data["HomeDirectoryDetails"])
+            filtered_by_server = []
             for entry in response_data["HomeDirectoryDetails"]:
+                if "servers" in entry:
+                    if not event['serverId'] in entry["servers"]:
+                        logger.debug(f"Virtual directory entry {entry['Entry']} has a server filter that does not include {event['serverId']}. Removing from list.")
+                    else:
+                        logger.debug(f"Virtual directory entry {entry['Entry']} has a server filter that includes {event['serverId']}.")
+                        entry.pop("servers")
+                        filtered_by_server.append(entry)
+                else:
+                    logger.debug(f"Virtual directory entry {entry['Entry']} has no server filter.")
+                    filtered_by_server.append(entry)
+            
+            # Log server filtering results
+            server_filtered_count = len(filtered_by_server)
+            logger.info(f"Server filtering: {server_filtered_count} of {total_entries} directory entries included for server {event['serverId']}")
+            
+            if server_filtered_count == 0:
+                logger.warning(f"All directory entries filtered out by server filter for server {event['serverId']}. No directories available for user {username}.")
+            
+            # Apply region filtering to server-filtered entries
+            filtered_home_directory_details = []
+            for entry in filtered_by_server:
                 if "regions" in entry:
                     if not AWS_REGION.lower() in entry["regions"]:
                         logger.debug(f"Virtual directory entry {entry['Entry']} has a region filter that does not include {AWS_REGION}. Removing from list.")
@@ -362,6 +385,14 @@ def lambda_handler(event, context):
                 else:
                     logger.debug(f"Virtual directory entry {entry['Entry']} has no region filter.")
                     filtered_home_directory_details.append(entry)
+            
+            # Log region filtering results
+            region_filtered_count = len(filtered_home_directory_details)
+            logger.info(f"Region filtering: {region_filtered_count} of {server_filtered_count} directory entries included for region {AWS_REGION}")
+            
+            if region_filtered_count == 0 and server_filtered_count > 0:
+                logger.warning(f"All directory entries filtered out by region filter for region {AWS_REGION}. No directories available for user {username}.")
+            
             response_data["HomeDirectoryDetails"] = json.dumps(
                 filtered_home_directory_details
             )
@@ -387,7 +418,8 @@ def lambda_handler(event, context):
     response_variables = {
         "USERNAME": username,
         "AWS_REGION": AWS_REGION,
-        "AWS_ACCOUNT": ACCOUNT_ID
+        "AWS_ACCOUNT": ACCOUNT_ID,
+        "SERVER_ID": event['serverId']
     }
 
     response_data_str = re.sub(r'\{\{(\w+)\}\}', lambda match: response_variables[match.group(1)], response_data_str)
