@@ -36,7 +36,7 @@ To get started, review the [Solution Overview](#solution-overview), then followi
       - [DynamoDB Record Schema](#dynamodb-record-schema-2)
       - [Parameters](#parameters-2)
       - [Example](#example-1)
-    - [Microsoft Entra ID (BETA)](#microsoft-entra-id-beta)
+    - [Microsoft Entra ID](#microsoft-entra-id)
       - [DynamoDB Record Schema](#dynamodb-record-schema-3)
       - [Parameters](#parameters-3)
       - [Example](#example-2)
@@ -83,8 +83,6 @@ To get started, review the [Solution Overview](#solution-overview), then followi
     - [Define a user](#define-a-user)
     - [Test the identity provider](#test-the-identity-provider)
   - [Setting up Okta](#setting-up-okta)
-  - [Configuring Okta MFA](#configuring-okta-mfa)
-  - [Configuring Okta to retrieve session settings from user profile attributes](#configuring-okta-to-retrieve-session-settings-from-user-profile-attributes)
   - [Security](#security)
   - [License](#license)
 
@@ -105,10 +103,10 @@ Below is a list of the built-in identity provider modules the solution provides.
 
 | **Provider**                 | **Password flows** | **Public key flows** | **Multi-factor** | **Attribute retrieval** | **Details**                                                                                                                  |
 | ---------------------------- | ------------------ | -------------------- | ---------------- | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| [Active Directory and LDAP](#ldap-and-active-directory)    | Yes                | Yes\*                | No               | Yes                     | User verificaiton can be performed as part of public key authentication flow. Retrieving keys from AD/LDAP is not supported. |
+| [Active Directory and LDAP](#ldap-and-active-directory)    | Yes                | Yes\*                | No               | Yes                     | User verification can be performed as part of public key authentication flow. Retrieving keys from AD/LDAP is not supported. |
 | [Argon2 (local hash)](#argon2)          | Yes                | No                   | No               | No                      | Argon2 hashes are stored in the user record for 'local' password based authentication use cases.                             |
 | [Cognito](#cognito)                      | Yes                | No                   | Yes\*            | No                      | TOTP-based MFA only. SMS-based MFA is not supported.                                                                         |
-| [Entra ID (formerly Azure AD)](#microsoft-entra-id-beta) | Yes                | No                   | No               | No                      | Currently in Beta status release                                                                                                                 |
+| [Entra ID (formerly Azure AD)](#microsoft-entra-id) | Yes                | No                   | No               | No                      |                                                                                                                  |
 | [Okta](#okta)                         | Yes                | Yes                  | Yes\*            | Yes                     | TOTP-based MFA only.                                                                                                         |
 | [Public Key](#okta)                   | No                 | Yes                  | No               | No                      | Public keys are stored in the user record in DynamoDB.                                                                       |
 | [Secrets Manager](#secrets-manager)              | Yes                | Yes                  | No               | No                      |                                                                                                                              |
@@ -987,12 +985,9 @@ The following example identity provider record configures the Cognito module to:
 }
 ```
 
-### Microsoft Entra ID (BETA)
+### Microsoft Entra ID
 
 The `entra` module supports authentication with Microsoft Entra ID (formerly Azure AD).
-
->[!IMPORTANT]
-> This module is released as Beta to allow solution users to test and provide feedback. While there are no known issues with the module, it has limited testing.
 
 >[!IMPORTANT]
 > * The Entra ID module does NOT support MFA-based authentication. This is a documented limitation with [Resource Owner Password Credential (ROPC) flows in Entra ID](https://learn.microsoft.com/en-us/entra/identity-platform/v2-oauth-ropc)
@@ -1419,7 +1414,7 @@ When set to `false` and the attribute is missing or empty in the user's LDAP obj
       "port": {
         "N": "636"
       },
-      "domain" {
+      "domain": {
         "S": "example.com"
       },
       "search_base": {
@@ -2823,13 +2818,7 @@ Authenticating users with Okta can be as simple as defining an identity provider
 
 
 
-## Configuring Okta MFA
 
-***We're working on this tutorial, please check back later.***
-
-## Configuring Okta to retrieve session settings from user profile attributes
-
-***We're working on this tutorial, please check back later.***
 
 ## Security
 
