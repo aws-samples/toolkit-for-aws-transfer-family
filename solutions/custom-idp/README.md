@@ -2592,18 +2592,38 @@ In this example, a user connects to Transfer Family with username `usertest`, bu
 
 ```json
 {
-  "user": "usertest",
-  "identity_provider_key": "cognito",
-  "idp_username": "user+test@example.com",
+  "user": {
+    "S": "usertest"
+  },
+  "identity_provider_key": {
+    "S": "cognito"
+  },
+  "idp_username": {
+    "S": "user+test@example.com"
+  },
   "config": {
-    "Role": "arn:aws:iam::123456789012:role/TransferRole",
-    "HomeDirectoryDetails": [
-      {
-        "Entry": "/",
-        "Target": "/my-bucket/${transfer:UserName}"
+    "M": {
+      "Role": {
+        "S": "arn:aws:iam::123456789012:role/TransferRole"
+      },
+      "HomeDirectoryDetails": {
+        "L": [
+          {
+            "M": {
+              "Entry": {
+                "S": "/"
+              },
+              "Target": {
+                "S": "/my-bucket/${transfer:UserName}"
+              }
+            }
+          }
+        ]
+      },
+      "HomeDirectoryType": {
+        "S": "LOGICAL"
       }
-    ],
-    "HomeDirectoryType": "LOGICAL"
+    }
   }
 }
 ```
