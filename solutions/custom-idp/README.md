@@ -1080,7 +1080,7 @@ Copy the hash and paste it into the `argon_hash` field in the `user` record abov
 
 ### Cognito
 
-The `cognito` module supports authentication with a Cognito user pool. It supports password based authentication, and TOTP-based MFA. 
+The `cognito` module supports authentication with a Cognito user pool. It supports password based authentication, TOTP-based MFA, app clients with client secrets, and optionally propagating the source IP address to Cognito for use with threat protection. 
 
 >[!IMPORTANT]
 > * This module supports local Cognito users only. You cannot sign in a user with a federated IdP connected to Cognito. For more information, see [Things to know about Amazon Cognito user pools third-party sign-in](https://docs.aws.amazon.com/cognito/latest/developerguide/cognito-user-pools-identity-federation.html#cognito-user-pools-identity-federation-how-it-works-considerations) in the Cognito documentation. InitiateAuth and AdminInitiateAuth do not support federation.
@@ -1103,6 +1103,12 @@ The `cognito` module supports authentication with a Cognito user pool. It suppor
       "cognito_user_pool_region": {
         "S": "[cognito user pool region]"
       },  
+      "cognito_client_secret_arn": {
+        "S": "[ARN of the secret storing the app client secret]"
+      },
+      "cognito_include_source_ip": {
+        "BOOL": [true or false]
+      },
       "mfa": {
         "BOOL": [true or false]
       }
@@ -1137,7 +1143,7 @@ The name of the Cognito module that will be loaded to perform authentication. **
 
 **config/cognito_client_id**
 
-The Client ID of the Cognito user pool app client that will be used to perform authentication. The user pool app client must be a public client. For more information, see the [Creating an app client](https://docs.aws.amazon.com/cognito/latest/developerguide/user-pool-settings-client-apps.html) in the AWS documentation.
+The Client ID of the Cognito user pool app client that will be used to perform authentication. This can be either a public client or a confidential client (one with a client secret). If using a confidential client, the client secret must be stored in Secrets Manager and the ARN specified in `cognito_client_secret_arn`. For more information, see the [Creating an app client](https://docs.aws.amazon.com/cognito/latest/developerguide/user-pool-settings-client-apps.html) in the AWS documentation.
 
 ***Type:*** String
 
@@ -1156,6 +1162,33 @@ The region the Cognito user pool is located in. This is used to ensure the corre
 ***Required:*** No
 
 ***Default:*** The region the custom identity provider Lambda is running in. 
+
+**config/cognito_client_secret_arn**
+
+The ARN of an AWS Secrets Manager secret that contains the Cognito app client secret. This is required when using a confidential app client (one configured with a client secret). The secret value can be either a plain string containing the client secret, or a JSON object with a `client_secret` key. When configured, the module computes a `SECRET_HASH` and includes it in authentication requests.
+
+***Type:*** String
+
+***Constraints:*** Must be a valid Secrets Manager secret ARN containing the app client secret.
+
+***Required:*** No
+
+***Default:*** None (no client secret is used)
+
+**config/cognito_include_source_ip**
+
+When set to `true`, the source IP address of the connecting client is passed to Cognito via `UserContextData` in the `InitiateAuth` request. This is used by Cognito's threat protection features for risk-based adaptive authentication.
+
+>[!NOTE]
+> To use this feature, [`EnablePropagateAdditionalUserContextData`](https://docs.aws.amazon.com/cognito-user-identity-pools/latest/APIReference/API_CreateUserPoolClient.html) must be enabled on the Cognito app client. This setting is only available on confidential app clients (those with a client secret), so `cognito_client_secret_arn` must also be configured.
+
+***Type:*** Boolean
+
+***Constraints:*** Must be `true` or `false`
+
+***Required:*** No
+
+***Default:*** `false`
 
 **config/mfa**
 
@@ -1193,6 +1226,8 @@ The number of digits to expect in the MFA token that is appended to the password
 
 The following example identity provider record configures the Cognito module to:
 * Use to the app client `353r6nqo4bi6baaaasdf123` that is associated with a user pool in `us-east-1`
+* Use a client secret stored in Secrets Manager
+* Propagate the source IP address to Cognito for threat protection
 * Enable MFA with a 6-digit token
 
 
@@ -1211,12 +1246,18 @@ The following example identity provider record configures the Cognito module to:
       },
       "cognito_user_pool_region": {
         "S": "us-east-1"
-      },    
+      },
+      "cognito_client_secret_arn": {
+        "S": "arn:aws:secretsmanager:us-east-1:123456789012:secret:cognito-client-secret-AbCdEf"
+      },
+      "cognito_include_source_ip": {
+        "BOOL": true
+      },
       "mfa": {
         "BOOL": true
       }
     }
-  }
+  },
   "module": {
     "S": "cognito"
   }
