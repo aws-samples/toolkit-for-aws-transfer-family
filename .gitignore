@@ -108,6 +108,9 @@ ENV/
 # mypy
 .mypy_cache/
 
+# Node
+node_modules/
+
 # IDE settings
 .vscode/
 .idea/

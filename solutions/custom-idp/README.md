@@ -203,7 +203,7 @@ Before deploying the solution, you will need the following:
     | **Subnets** | **CONDITIONALLY REQUIRED**. Must be set if `CreateVPC` is `false`. A list of subnet IDs to attach the Lambda function to. The Lambda is attached to subnets in order to allow private communication to IdPs such as LDAP servers or Active Directory domain controllers. At least one subnet must be specified, and all subnets must be in the same VPC specified above. **IMPORTANT**: The subnets must be able to reach DynamoDB, STS, and Secrets Manager service endpoints. If using public IdP such as Okta, the subnet must also have a route to a NAT Gateway that can forward requests to the internet. *Using a public subnet will not work because Lambda network interfaces are not assigned public IP addresses*.  | *comma-separated list of subnet IDs, i.e. `subnet-123abc,subnet-456def`* |
     | **SecurityGroups** | **CONDITIONALLY REQUIRED**. Must be set if `CreateVPC` is false. A list of security group IDs to assign to the Lambda function. This is used to control inbound and outbound access to/from the ENI the Lambda function uses for network connectivity. At least one security group must be specified and the security group must belong to the VPC specified above. | *comma-separated list of Security Group IDs, i.e. `sg-abc123`* |
     | **UserNameDelimiter**  | The delimiter to use when specifying both the username and IdP name during login. It is recommended that `@@` be used to avoid issues with parsing email addresses, e.g. `[username]@@[IdP-name]`. Currently, only the `@` character is supported due to validation checks that AWS Transfer Family performs on the username.  | **`@@`** |    
-    | **SecretsManagerPermissions** | Set to *`true`* if you will use the Secrets Manager authentication module, otherwise *`false`* | `true` or `false`|
+    | **SecretsManagerPermissions** | Set to *`true`* if you will use the Secrets Manager authentication module, otherwise *`false`* | `true` or `false` . **IMPORTANT:** It is recommended to use tightly-scoped policies for secrets access in production. Use this setting only for testing, then modify the Lambda function's role to apply tightly-scoped secrets access in production. |
     | **ProvisionApi** | When set to *`true`* an API Gateway REST API will be provisioned and integrated with the custom IdP Lambda. Provisioning and using an API Gateway REST API with AWS Transfer is useful if you intend to [use AWS Web Application Firewall (WAF) WebACLs to restrict requests to authenticate to specific IP addresses](https://aws.amazon.com/blogs/storage/securing-aws-transfer-family-with-aws-web-application-firewall-and-amazon-api-gateway/) or apply rate limiting. | `true` or `false` |    
     | **LogLevel** | Sets the verbosity of logging for the Lambda IdP function. This should be set to `INFO` by default and `DEBUG` when troubleshooting. <br /><br />**IMPORTANT** When set to `DEBUG`, sensitive information may be included in log entries. | `INFO` or `DEBUG` <br /> <br /> *`INFO` recommended as default* |
     | **EnableTracing** | Set to *`true`* if you would like to enable AWS X-Ray tracing on the solution. <br /><br /> Note: X-Ray has additional costs. | `true` or `false` |
@@ -1080,7 +1080,7 @@ Copy the hash and paste it into the `argon_hash` field in the `user` record abov
 
 ### Cognito
 
-The `cognito` module supports authentication with a Cognito user pool. It supports password based authentication, and TOTP-based MFA. 
+The `cognito` module supports authentication with a Cognito user pool. It supports password based authentication, TOTP-based MFA, app clients with client secrets, and optionally propagating the source IP address to Cognito for use with threat protection. 
 
 >[!IMPORTANT]
 > * This module supports local Cognito users only. You cannot sign in a user with a federated IdP connected to Cognito. For more information, see [Things to know about Amazon Cognito user pools third-party sign-in](https://docs.aws.amazon.com/cognito/latest/developerguide/cognito-user-pools-identity-federation.html#cognito-user-pools-identity-federation-how-it-works-considerations) in the Cognito documentation. InitiateAuth and AdminInitiateAuth do not support federation.
@@ -1103,6 +1103,12 @@ The `cognito` module supports authentication with a Cognito user pool. It suppor
       "cognito_user_pool_region": {
         "S": "[cognito user pool region]"
       },  
+      "cognito_client_secret_arn": {
+        "S": "[ARN of the secret storing the app client secret]"
+      },
+      "cognito_include_source_ip": {
+        "BOOL": [true or false]
+      },
       "mfa": {
         "BOOL": [true or false]
       }
@@ -1137,7 +1143,7 @@ The name of the Cognito module that will be loaded to perform authentication. **
 
 **config/cognito_client_id**
 
-The Client ID of the Cognito user pool app client that will be used to perform authentication. The user pool app client must be a public client. For more information, see the [Creating an app client](https://docs.aws.amazon.com/cognito/latest/developerguide/user-pool-settings-client-apps.html) in the AWS documentation.
+The Client ID of the Cognito user pool app client that will be used to perform authentication. This can be either a public client or a confidential client (one with a client secret). If using a confidential client, the client secret must be stored in Secrets Manager and the ARN specified in `cognito_client_secret_arn`. For more information, see the [Creating an app client](https://docs.aws.amazon.com/cognito/latest/developerguide/user-pool-settings-client-apps.html) in the AWS documentation.
 
 ***Type:*** String
 
@@ -1156,6 +1162,33 @@ The region the Cognito user pool is located in. This is used to ensure the corre
 ***Required:*** No
 
 ***Default:*** The region the custom identity provider Lambda is running in. 
+
+**config/cognito_client_secret_arn**
+
+The ARN of an AWS Secrets Manager secret that contains the Cognito app client secret. This is required when using a confidential app client (one configured with a client secret). The secret value can be either a plain string containing the client secret, or a JSON object with a `client_secret` key. When configured, the module computes a `SECRET_HASH` and includes it in authentication requests.
+
+***Type:*** String
+
+***Constraints:*** Must be a valid Secrets Manager secret ARN containing the app client secret.
+
+***Required:*** No
+
+***Default:*** None (no client secret is used)
+
+**config/cognito_include_source_ip**
+
+When set to `true`, the source IP address of the connecting client is passed to Cognito via `UserContextData` in the `InitiateAuth` request. This is used by Cognito's threat protection features for risk-based adaptive authentication.
+
+>[!NOTE]
+> To use this feature, [`EnablePropagateAdditionalUserContextData`](https://docs.aws.amazon.com/cognito-user-identity-pools/latest/APIReference/API_CreateUserPoolClient.html) must be enabled on the Cognito app client. This setting is only available on confidential app clients (those with a client secret), so `cognito_client_secret_arn` must also be configured.
+
+***Type:*** Boolean
+
+***Constraints:*** Must be `true` or `false`
+
+***Required:*** No
+
+***Default:*** `false`
 
 **config/mfa**
 
@@ -1193,6 +1226,8 @@ The number of digits to expect in the MFA token that is appended to the password
 
 The following example identity provider record configures the Cognito module to:
 * Use to the app client `353r6nqo4bi6baaaasdf123` that is associated with a user pool in `us-east-1`
+* Use a client secret stored in Secrets Manager
+* Propagate the source IP address to Cognito for threat protection
 * Enable MFA with a 6-digit token
 
 
@@ -1211,12 +1246,18 @@ The following example identity provider record configures the Cognito module to:
       },
       "cognito_user_pool_region": {
         "S": "us-east-1"
-      },    
+      },
+      "cognito_client_secret_arn": {
+        "S": "arn:aws:secretsmanager:us-east-1:123456789012:secret:cognito-client-secret-AbCdEf"
+      },
+      "cognito_include_source_ip": {
+        "BOOL": true
+      },
       "mfa": {
         "BOOL": true
       }
     }
-  }
+  },
   "module": {
     "S": "cognito"
   }
@@ -2592,18 +2633,38 @@ In this example, a user connects to Transfer Family with username `usertest`, bu
 
 ```json
 {
-  "user": "usertest",
-  "identity_provider_key": "cognito",
-  "idp_username": "user+test@example.com",
+  "user": {
+    "S": "usertest"
+  },
+  "identity_provider_key": {
+    "S": "cognito"
+  },
+  "idp_username": {
+    "S": "user+test@example.com"
+  },
   "config": {
-    "Role": "arn:aws:iam::123456789012:role/TransferRole",
-    "HomeDirectoryDetails": [
-      {
-        "Entry": "/",
-        "Target": "/my-bucket/${transfer:UserName}"
+    "M": {
+      "Role": {
+        "S": "arn:aws:iam::123456789012:role/TransferRole"
+      },
+      "HomeDirectoryDetails": {
+        "L": [
+          {
+            "M": {
+              "Entry": {
+                "S": "/"
+              },
+              "Target": {
+                "S": "/my-bucket/${transfer:UserName}"
+              }
+            }
+          }
+        ]
+      },
+      "HomeDirectoryType": {
+        "S": "LOGICAL"
       }
-    ],
-    "HomeDirectoryType": "LOGICAL"
+    }
   }
 }
 ```

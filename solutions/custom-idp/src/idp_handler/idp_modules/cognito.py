@@ -1,5 +1,9 @@
 import logging
 import os
+import hmac
+import hashlib
+import base64
+import json
 import boto3
 from idp_modules import util
 from aws_lambda_powertools import Tracer
@@ -15,7 +19,21 @@ class CognitoIdpModuleError(util.IdpModuleError):
 
     pass
 
+secret_cache = {}
 client = boto3.client('cognito-idp')
+
+
+@tracer.capture_method
+def compute_secret_hash(username, client_id, client_secret):
+    message = username + client_id
+    dig = hmac.new(
+        client_secret.encode('utf-8'),
+        msg=message.encode('utf-8'),
+        digestmod=hashlib.sha256
+    ).digest()
+    secret_hash = base64.b64encode(dig).decode()
+    logger.debug(f"Secret hash for user {username}: {secret_hash}")
+    return secret_hash
 
 @tracer.capture_method
 def handle_auth(
@@ -36,12 +54,28 @@ def handle_auth(
     identity_provider_config = identity_provider_record["config"]
     cognito_client_id = identity_provider_config["cognito_client_id"]
     cognito_user_pool_region = identity_provider_config.get("cognito_user_pool_region", os.environ.get('AWS_REGION', os.environ.get('AWS_DEFAULT_REGION', 'us-east-1')))
+    cognito_client_secret_arn = identity_provider_config.get("cognito_client_secret_arn", None)
+    cognito_include_source_ip = identity_provider_config.get("cognito_include_source_ip", False)
     cognito_mfa = identity_provider_record["config"].get("mfa", False)
     cognito_mfa_token_length = int(
         identity_provider_record["config"].get("mfa_token_length", 6)
     )
     password = event["password"]
-    
+
+    # Retrieve client secret from Secrets Manager if configured
+    cognito_client_secret = None
+    if cognito_client_secret_arn:
+        logger.info(f"Client secret ARN configured. Retrieving client secret from Secrets Manager.")
+        secret_value = util.fetch_secret_cache(secret_cache, cognito_client_secret_arn)
+        if secret_value is None:
+            raise CognitoIdpModuleError("Failed to retrieve Cognito client secret from Secrets Manager.")
+        # Support both plain string secrets and JSON secrets with a "client_secret" key
+        try:
+            secret_json = json.loads(secret_value)
+            cognito_client_secret = secret_json.get("client_secret", secret_value)
+        except (json.JSONDecodeError, TypeError):
+            cognito_client_secret = secret_value
+
     if cognito_mfa:
         logger.info(
             f"MFA enabled, extracting token code from last {cognito_mfa_token_length} characters of provided password."
@@ -55,17 +89,29 @@ def handle_auth(
 
     logger.info(f"Authenticating {parsed_username} with client id {cognito_client_id} in region {cognito_user_pool_region}")
 
-    response = client.initiate_auth(
-        AuthFlow='USER_PASSWORD_AUTH',
-        AuthParameters={
-            'USERNAME': parsed_username,
-            'PASSWORD': password
-        },
-        ClientId=cognito_client_id, 
-        UserContextData = {
+    auth_parameters = {
+        'USERNAME': parsed_username,
+        'PASSWORD': password
+    }
+
+    if cognito_client_secret:
+        auth_parameters['SECRET_HASH'] = compute_secret_hash(parsed_username, cognito_client_id, cognito_client_secret)
+
+    initiate_auth_kwargs = {
+        'AuthFlow': 'USER_PASSWORD_AUTH',
+        'AuthParameters': auth_parameters,
+        'ClientId': cognito_client_id,
+    }
+
+    if cognito_include_source_ip:
+        logger.info(f"Propagating source IP {event['sourceIp']} to Cognito UserContextData.")
+        initiate_auth_kwargs['UserContextData'] = {
             'IpAddress': event["sourceIp"]
         }
-    )
+
+    response = client.initiate_auth(**initiate_auth_kwargs)
+
+    
 
     logger.debug(f"Cognito response: {response}")
 
@@ -78,14 +124,17 @@ def handle_auth(
                 raise CognitoIdpModuleError("MFA required but not configured for this user.")
             elif response["ChallengeName"] == "SOFTWARE_TOKEN_MFA":
                 logger.info(f"Responding to MFA challenge with token.")
+                challenge_responses = {
+                    'USERNAME': parsed_username,
+                    'SOFTWARE_TOKEN_MFA_CODE': mfa_token
+                }
+                if cognito_client_secret:
+                    challenge_responses['SECRET_HASH'] = compute_secret_hash(parsed_username, cognito_client_id, cognito_client_secret)
                 mfa_response = client.respond_to_auth_challenge(
                     ClientId=cognito_client_id,
                     ChallengeName='SOFTWARE_TOKEN_MFA',
                     Session=response["Session"],
-                    ChallengeResponses={
-                        'USERNAME': parsed_username,
-                        'SOFTWARE_TOKEN_MFA_CODE': mfa_token
-                    }
+                    ChallengeResponses=challenge_responses
                 )
                 logger.debug(f"Cognito response: {mfa_response}")
                 if mfa_response.get("AuthenticationResult", None) is None:
