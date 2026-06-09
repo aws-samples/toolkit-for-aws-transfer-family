@@ -2686,6 +2686,17 @@ If you prefer not to manage two clients, you can omit `admin_client_id` and `adm
 | Password auth + attributes, **simplified single-client** | Client auth: On, Direct Access Grants: On, Service accounts: On, `view-users` + `query-users` assigned | Omit — falls back to auth client |
 | Public key auth with keys/attributes from Keycloak | Not used for auth | Client auth: On, Service accounts: On, `view-users` + `query-users` assigned |
 
+#### Caching behaviour
+
+This module runs inside an AWS Lambda function. Lambda reuses execution contexts ("warm instances") across invocations, so module-level state persists between authentication requests on the same instance.
+
+**Secrets Manager secrets** are cached for 60 seconds (with jitter). This avoids a Secrets Manager API call on every authentication request while ensuring secrets are refreshed promptly after rotation.
+
+**Admin bearer tokens** are cached until 30 seconds before their actual expiry, which is read directly from the JWT `exp` claim. This means the cache TTL automatically reflects the token lifetime configured in your Keycloak realm — no hardcoded assumptions are made. If the JWT cannot be parsed, the cache falls back to a conservative 60-second TTL. On a cold Lambda start the token will always be fetched fresh.
+
+> [!NOTE]
+> If you rotate the admin client secret in Keycloak, the cached secret will be used for up to 60 seconds before the new value is picked up from Secrets Manager. Plan rotations accordingly or reduce the cache TTL if needed.
+
 #### Public key sources
 
 For public key authentication, keys come from one of two sources — **Keycloak takes precedence over DynamoDB**:
