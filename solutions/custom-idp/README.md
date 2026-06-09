@@ -59,6 +59,12 @@ To get started, review the [Solution Overview](#solution-overview), then followi
       - [Parameters](#parameters-7)
       - [Secret Format](#secret-format)
       - [Example](#example-6)
+    - [Keycloak](#keycloak)
+      - [DynamoDB Record Schema](#dynamodb-record-schema-8)
+      - [Parameters](#parameters-8)
+      - [Keycloak client configuration](#keycloak-client-configuration)
+      - [Storing SSH public keys in Keycloak](#storing-ssh-public-keys-in-keycloak)
+      - [Example](#example-7)
 - [Define a `$default$` user record](#define-a-default-user-record)
   - [Using `$default$` to set dynamic home directories](#using-default-to-set-dynamic-home-directories)
 - [Filtering logical directories by region and Transfer Family server](#filtering-logical-directories-by-region-and-transfer-family-server)
@@ -97,7 +103,7 @@ The AWS Transfer Family Custom IdP Solution provides these key features:
 * An [AWS Serverless Application Model (AWS SAM)](https://aws.amazon.com/serverless/sam/) template that provisions the required resources. Optionally, deploy and configure [AWS API Gateway](https://aws.amazon.com/api-gateway/) to [incorporate AWS WAF](https://aws.amazon.com/blogs/storage/securing-aws-transfer-family-with-aws-web-application-firewall-and-amazon-api-gateway/).
 * An [Amazon DynamoDB](https://aws.amazon.com/dynamodb/) schema to store configuration metadata about users and IdPs, including user session settings such as `HomeDirectoryDetails`, `Role`, and `Policy`.
 * A modular approach that enables you to add new IdPs to the solution in the future as modules, such as the user’s own modules.
-* Support for the following IdPs: LDAP (such as Microsoft AD), Okta, Public and Private Key, and [AWS Secrets Manager](https://aws.amazon.com/secrets-manager/).
+* Support for the following IdPs: LDAP (such as Microsoft AD), Okta, Keycloak, Public and Private Key, and [AWS Secrets Manager](https://aws.amazon.com/secrets-manager/).
 * Support for multiple IdPs connected to a single Transfer Family Server and multiple Transfer Family servers using the same deployment of the solution.
 * Built-in IP allow-list checking, such as IP allow lists that can optionally be configured on a per-user or per-IdP basis.
 * Detailed logging with configurable log-level and tracing support to aide in troubleshooting
@@ -114,6 +120,7 @@ Below is a list of the built-in identity provider modules the solution provides.
 | [Okta](#okta)                         | Yes                | Yes                  | Yes\*            | Yes                     | TOTP-based MFA only.                                                                                                         |
 | [Public Key](#okta)                   | No                 | Yes                  | No               | No                      | Public keys are stored in the user record in DynamoDB.                                                                       |
 | [Secrets Manager](#secrets-manager)              | Yes                | Yes                  | No               | No                      |                                                                                                                              |
+| [Keycloak](#keycloak)                 | Yes                | Yes                  | No               | Yes                     | User attributes including Role, PosixProfile, Policy, and public keys are retrieved from Keycloak user attributes. Password or public key auth can be disabled independently via `password_auth_support` and `public_key_support`.           |
 
 # Architecture
 AWS Transfer Family Custom IdP Solution deploys an AWS Lambda function along with an Amazon DynamoDB database to store configuration metadata about users and IdPs. You can configure different modules (e.g. LDAP, Okta, public/private keys) to handle authentication against various IdPs. This modular approach enables the addition of new IdPs in the future and provides the ability to develop custom modules. The user records in the DynamoDB table map usernames to specific IdPs and store per-user settings like home directory details, roles, and POSIX profiles. When a client connects to the AWS Transfer Family server, the custom IdP Lambda function authenticates the user against the configured IdP module, retrieves the user-specific session settings from DynamoDB, and provisions those settings for the session.
@@ -2323,6 +2330,446 @@ For this configuration, if a user "jsmith" attempts to authenticate, the module 
 3. For public key authentication, look for public keys in:
    - The `PublicKeys` field of the main secret
    - If not found, look in a secret named `transfer/jsmith/keys`
+
+
+### Keycloak
+
+The `keycloak` module supports password and public key authentication against a [Keycloak](https://www.keycloak.org/) instance.
+
+For password authentication, the module uses the [Resource Owner Password Credentials (ROPC)](https://www.rfc-editor.org/rfc/rfc6749#section-4.3) grant to authenticate the user directly against Keycloak. For public key authentication, Keycloak is used as a directory — the module looks up the user to confirm they exist and are enabled. Public keys come from either Keycloak custom user attributes (via the `attributes` map) or from the user's record in the DynamoDB `users` table.
+
+**The `attributes` map is entirely optional.** The module can be used purely to verify that a user exists in Keycloak and authenticate their password or confirm account status, while all Transfer Family session settings (`Role`, `Policy`, `PosixProfile`, `PublicKeys`, `HomeDirectoryDetails`) are managed in the DynamoDB `users` table as normal. This is the simplest setup and requires no admin client configuration.
+
+When the `attributes` map is configured, the module additionally calls the Keycloak Admin REST API to retrieve per-user values for any mapped properties. Keycloak attribute values always take precedence over values in DynamoDB — see [Attribute precedence](#attribute-precedence).
+
+
+> [!IMPORTANT]
+> See the [Keycloak client configuration](#keycloak-client-configuration) section for the required Keycloak client settings.
+
+#### DynamoDB Record Schema
+
+```json
+{
+  "provider": {
+    "S": "[provider name]"
+  },
+  "module": {
+    "S": "keycloak"
+  },
+  "public_key_support": {
+    "BOOL": true
+  },
+  "config": {
+    "M": {
+      "base_url": {
+        "S": "https://[keycloak-host]"
+      },
+      "client_realm": {
+        "S": "[realm name]"
+      },
+      "client_id": {
+        "S": "[client id]"
+      },
+      "client_secret_arn": {
+        "S": "[secrets manager ARN]"
+      },
+      "admin_client_id": {
+        "S": "[admin client id]"
+      },
+      "admin_client_secret_arn": {
+        "S": "[secrets manager ARN]"
+      },
+      "admin_realm": {
+        "S": "[admin realm name]"
+      },
+      "ssl_verify": {
+        "BOOL": true
+      },
+      "ssl_ca_secret_arn": {
+        "S": "[secrets manager ARN]"
+      },
+      "ignore_missing_attributes": {
+        "BOOL": true
+      },
+      "password_auth_support": {
+        "BOOL": false
+      },
+      "attributes": {
+        "M": {
+          "Role": {
+            "S": "[Keycloak attribute name]"
+          },
+          "PublicKeys": {
+            "S": "[Keycloak attribute name]"
+          },
+          "Policy": {
+            "S": "[Keycloak attribute name]"
+          },
+          "Uid": {
+            "S": "[Keycloak attribute name]"
+          },
+          "Gid": {
+            "S": "[Keycloak attribute name]"
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+#### Parameters
+
+**provider**
+
+A name used for referencing the provider in the `users` table. 
+***Type:*** String
+
+***Required:*** Yes
+
+---
+
+**module**
+
+The name of the module to load. **Must be set to `keycloak`.**
+
+***Type:*** String
+
+***Required:*** Yes
+
+---
+
+**public_key_support**
+
+When set to `true`, the Keycloak module handles public key authentication rather than the generic `public_key` module. This allows Keycloak to be used for user existence and account status checks during public key auth.
+
+With this set to `true`, public keys are sourced as follows — **Keycloak takes precedence**:
+- If `PublicKeys` is configured in the `attributes` map and Keycloak returns keys for the user, those keys are used and the DynamoDB user record is not consulted for keys.
+- If Keycloak returns no keys (either because `PublicKeys` is not in the `attributes` map, or the user has no keys in Keycloak), the module falls back to keys stored in the `PublicKeys` field of the DynamoDB user record.
+- If neither source has keys, authentication fails.
+
+When set to `false` or omitted, the generic `public_key` module is used instead and keys are read only from the DynamoDB user record. Keycloak is not involved in public key auth at all.
+
+***Type:*** Boolean
+
+***Required:*** No
+
+***Default:*** `false`
+
+---
+
+**config/base_url**
+
+The base URL of the Keycloak server, without a trailing slash (e.g. `https://keycloak.example.com`).
+
+***Type:*** String
+
+***Required:*** Yes
+
+---
+
+**config/client_realm**
+
+The Keycloak realm that contains the users to authenticate. This is the realm the ROPC token request and Admin API user lookup are made against.
+
+***Type:*** String
+
+***Required:*** Yes
+
+---
+
+**config/client_id**
+
+The client ID of the Keycloak client used to authenticate users via password. The client must have **Direct Access Grants** and **Client authentication** enabled.
+
+Not required when `password_auth_support` is set to `false` (public key only mode).
+
+***Type:*** String
+
+***Required:*** Yes, unless `password_auth_support` is `false`
+
+---
+
+**config/client_secret_arn**
+
+The ARN of an AWS Secrets Manager secret containing the client secret for the Keycloak authentication client. The secret value should be a plain string (not JSON).
+
+Not required when `password_auth_support` is set to `false` and a separate `admin_client_secret_arn` is configured for Admin API access.
+
+***Type:*** String (Secrets Manager ARN)
+
+***Required:*** No — required for password auth with a confidential client, or when used as fallback for Admin API calls (see `admin_client_secret_arn`)
+
+---
+
+**config/admin_client_id**
+
+The client ID of the Keycloak client used exclusively for Admin API calls (user lookup, account status check, and attribute retrieval). See [Keycloak client configuration](#keycloak-client-configuration) for the rationale, required settings, and single-client fallback option.
+
+If omitted, `client_id` is used for Admin API calls.
+
+***Type:*** String
+
+***Required:*** No (recommended for production)
+
+***Default:*** Value of `client_id`
+
+---
+
+**config/admin_client_secret_arn**
+
+The ARN of an AWS Secrets Manager secret containing the client secret for the admin client. The secret value must be a plain string — the same format as `client_secret_arn`.
+
+If omitted, the module falls back to `client_secret_arn` for Admin API calls.
+
+***Type:*** String (Secrets Manager ARN)
+
+***Required:*** No (required when `admin_client_id` is set)
+
+---
+
+**config/admin_realm**
+
+The Keycloak realm used to obtain an admin token via the `client_credentials` grant. Only set this if your admin client lives in a different realm to your users (e.g. a service account in the `master` realm with users in a separate realm). Defaults to `client_realm`.
+
+***Type:*** String
+
+***Required:*** No
+
+***Default:*** Value of `client_realm`
+
+---
+
+**config/ssl_verify**
+
+When set to `false`, TLS certificate verification is disabled for connections to Keycloak. Not recommended for production.
+
+***Type:*** Boolean
+
+***Required:*** No
+
+***Default:*** `true`
+
+---
+
+**config/ssl_ca_secret_arn**
+
+The ARN of an AWS Secrets Manager secret containing a custom CA certificate (PEM format) to use for TLS verification. Use this when Keycloak is using a private or self-signed certificate.
+
+***Type:*** String (Secrets Manager ARN)
+
+***Required:*** No
+
+---
+
+**config/attributes**
+
+An optional map of AWS Transfer session property names to Keycloak custom user attribute names. When configured, the module calls the Keycloak Admin API to retrieve the user object and maps the specified attributes into the Transfer Family session response.
+
+All attribute values are read from Keycloak custom user attributes (under `attributes` on the user object), except standard top-level fields like `enabled` which are checked automatically.
+
+Supported Transfer Family property keys:
+
+| Key | Description |
+|---|---|
+| `Role` | IAM role ARN to use for the session. |
+| `PublicKeys` | SSH public key(s) for public key authentication. Keycloak stores custom attributes as lists, so multiple keys are natively supported — add multiple values to the same attribute name on the Keycloak user and all of them will be returned to Transfer Family. Any one of the keys can be used to authenticate successfully. Not returned for password authentication. |
+| `Policy` | Session policy JSON string to further restrict the IAM role for this session. |
+| `Uid` | POSIX UID for EFS access. Must be set together with `Gid`. |
+| `Gid` | POSIX GID for EFS access. Must be set together with `Uid`. |
+
+> [!NOTE]
+> All Keycloak attribute values override the corresponding values set in the DynamoDB user or identity provider record. See [Attribute precedence](#attribute-precedence) for the full precedence order.
+
+Example — mapping Keycloak custom attributes to Transfer Family properties:
+```json
+"attributes": {
+  "M": {
+    "Role": { "S": "transferRole" },
+    "PublicKeys": { "S": "sshPublicKey" },
+    "Uid": { "S": "uidNumber" },
+    "Gid": { "S": "gidNumber" }
+  }
+}
+```
+
+In this example, `transferRole` is the name of the custom attribute on the Keycloak user that contains an IAM role ARN, and `sshPublicKey` is the attribute holding one or more SSH public keys.
+
+> [!NOTE]
+> **Attribute precedence:** Keycloak attribute values always take precedence over values set in DynamoDB. The order of precedence from lowest to highest is:
+> 1. Identity provider record `config` in DynamoDB (e.g. a static `Role` set at the IdP level)
+> 2. User record `config` in DynamoDB (e.g. a `Role` or `PosixProfile` set per user)
+> 3. Keycloak attributes (retrieved via the `attributes` map — always wins)
+>
+> This means if `Role` is configured in both the DynamoDB user record and as a Keycloak attribute, the value from Keycloak is used. This is intentional — Keycloak is treated as the authoritative source for any attribute you choose to map. If you do not want Keycloak to override a value, remove that key from the `attributes` map.
+
+***Type:*** Map
+
+***Required:*** No
+
+***Default:*** *none*
+
+---
+
+**config/ignore_missing_attributes**
+
+When set to `true`, attributes configured in the `attributes` map that are empty or not present on the Keycloak user will be silently skipped. When `false`, a missing attribute causes authentication to fail.
+
+> [!NOTE]
+> It is recommended to leave this as `false` in production. A missing `Role` or `Policy` attribute may indicate the Keycloak user profile is misconfigured and could result in unintended access.
+
+***Type:*** Boolean
+
+***Required:*** No
+
+***Default:*** `false`
+
+---
+
+**config/password_auth_support**
+
+When set to `false`, password authentication is disabled for this identity provider. Any attempt to authenticate with a password will be rejected. Use this when you want to enforce public key-only authentication — for example, in environments where passwords are not permitted as a second factor.
+
+When omitted or set to `true`, password authentication is allowed (subject to the Keycloak client having Direct Access Grants enabled).
+
+***Type:*** Boolean
+
+***Required:*** No
+
+***Default:*** `true`
+
+---
+
+#### Keycloak client configuration
+
+This module uses up to two Keycloak clients with distinct roles. The recommended setup uses a separate client for authentication and a separate client for Admin API calls.
+
+**Why separate clients?** The authentication client uses the ROPC grant to verify passwords — it only needs **Direct Access Grants** and does not need admin permissions. The Admin API uses the `client_credentials` grant and requires `view-users` and `query-users` from `realm-management`. Keeping them separate means credentials are isolated, can be rotated independently, and each client has only the minimum permissions it needs.
+
+##### Authentication client (`client_id`)
+
+Used only to authenticate users via the Resource Owner Password Credentials (ROPC) grant. It does **not** call the Admin API. Required settings:
+
+- **Client authentication: On** — makes this a confidential client with a client secret
+- **Direct Access Grants: Enabled** — required for ROPC / password authentication
+
+##### Admin client (`admin_client_id`)
+
+Used exclusively to call the Keycloak Admin REST API — to look up users, verify account status, and retrieve user attributes. It does **not** authenticate users. Required settings:
+
+- **Client authentication: On** — must be a confidential client
+- **Service accounts roles: Enabled** — allows the `client_credentials` grant used to obtain an admin token
+- **`view-users` role** — allows reading user objects via the Admin API
+- **`query-users` role** — allows searching users by username
+
+> [!IMPORTANT]
+> `view-users` and `query-users` are roles from the `realm-management` client of the **realm where your users live** (`client_realm`). They must be assigned on the admin client's service account in that realm, regardless of where the admin client itself is defined. If your admin client lives in the `master` realm but your users live in `corporate`, you must assign the `realm-management` roles from the `corporate` realm — not `master`.
+
+##### Simplified single-client setup
+
+If you prefer not to manage two clients, you can omit `admin_client_id` and `admin_client_secret_arn`. The module will fall back to using the main authentication client (`client_id` / `client_secret_arn`) for Admin API calls. In this case the main client must satisfy the requirements of **both** roles:
+
+- **Client authentication: On**
+- **Direct Access Grants: Enabled**
+- **Service accounts roles: Enabled**
+- `view-users` and `query-users` assigned from `realm-management`
+
+> [!NOTE]
+> The single-client setup is simpler but mixes authentication and admin API concerns. It is suitable for development or testing. A separate admin client is recommended for production.
+
+##### Summary table
+
+| Setup | Authentication client (`client_id`) | Admin client (`admin_client_id`) |
+|---|---|---|
+| Password auth only, no attribute retrieval | Client auth: On, Direct Access Grants: On | Not required |
+| Password auth + attributes, **recommended two-client setup** | Client auth: On, Direct Access Grants: On | Client auth: On, Service accounts: On, `view-users` + `query-users` assigned |
+| Password auth + attributes, **simplified single-client** | Client auth: On, Direct Access Grants: On, Service accounts: On, `view-users` + `query-users` assigned | Omit — falls back to auth client |
+| Public key auth with keys/attributes from Keycloak | Not used for auth | Client auth: On, Service accounts: On, `view-users` + `query-users` assigned |
+
+#### Caching behaviour
+
+This module runs inside an AWS Lambda function. Lambda reuses execution contexts ("warm instances") across invocations, so module-level state persists between authentication requests on the same instance.
+
+**Secrets Manager secrets** are cached for 60 seconds (with jitter). This avoids a Secrets Manager API call on every authentication request while ensuring secrets are refreshed promptly after rotation.
+
+**Admin bearer tokens** are cached until 30 seconds before their actual expiry, which is read directly from the JWT `exp` claim. This means the cache TTL automatically reflects the token lifetime configured in your Keycloak realm — no hardcoded assumptions are made. If the JWT cannot be parsed, the cache falls back to a conservative 60-second TTL. On a cold Lambda start the token will always be fetched fresh.
+
+> [!NOTE]
+> If you rotate the admin client secret in Keycloak, the cached secret will be used for up to 60 seconds before the new value is picked up from Secrets Manager. Plan rotations accordingly or reduce the cache TTL if needed.
+
+#### Public key sources
+
+For public key authentication, keys come from one of two sources — **Keycloak takes precedence over DynamoDB**:
+
+1. **Keycloak user attributes** — configure `"PublicKeys": "<attribute-name>"` in the `attributes` map. The module retrieves all values of that attribute from the Keycloak user object. If keys are found, the DynamoDB user record is not used for key lookup. Requires the admin client to be configured.
+
+2. **DynamoDB user record** — if `PublicKeys` is not configured in the `attributes` map, or no admin client is configured, the module falls back to keys stored in the `PublicKeys` field of the user's record in the `users` table.
+
+The two sources are mutually exclusive — whichever provides keys first is used exclusively. If Keycloak is configured and returns keys, DynamoDB keys are ignored entirely.
+
+#### Storing SSH public keys in Keycloak
+
+SSH public keys are stored as a multi-valued custom attribute on the Keycloak user. Add one or more values to the same attribute name (e.g. `sshPublicKey`) on the user, each containing a full public key string:
+
+```
+sshPublicKey    ssh-rsa AAAAB3NzaC1yc2E... laptop
+sshPublicKey    ssh-ed25519 AAAAC3NzaC1l... yubikey
+```
+
+All keys are returned to Transfer Family and any one of them can be used to authenticate.
+
+#### Example
+
+Minimal configuration for password authentication with attribute retrieval using a single confidential client:
+
+```json
+{
+  "provider": {
+    "S": "keycloak.example.com"
+  },
+  "module": {
+    "S": "keycloak"
+  },
+  "public_key_support": {
+    "BOOL": true
+  },
+  "config": {
+    "M": {
+      "base_url": {
+        "S": "https://keycloak.example.com"
+      },
+      "client_realm": {
+        "S": "corporate"
+      },
+      "client_id": {
+        "S": "aws-transfer-family"
+      },
+      "client_secret_arn": {
+        "S": "arn:aws:secretsmanager:us-east-1:123456789012:secret:keycloak/client-secret"
+      },
+      "ignore_missing_attributes": {
+        "BOOL": true
+      },
+      "attributes": {
+        "M": {
+          "Role": {
+            "S": "transferRole"
+          },
+          "PublicKeys": {
+            "S": "sshPublicKey"
+          },
+          "Uid": {
+            "S": "uidNumber"
+          },
+          "Gid": {
+            "S": "gidNumber"
+          }
+        }
+      }
+    }
+  }
+}
+```
 
 
 # Define a `$default$` user record
