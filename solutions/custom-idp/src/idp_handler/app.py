@@ -278,11 +278,11 @@ def lambda_handler(event, context):
     if "Policy" in user_record["config"]:
         logger.info(f"Using Policy value from user record for user {input_username}")
         response_data["Policy"] = user_record["config"]["Policy"]
-    elif "Role" in identity_provider_record["config"]:
+    elif "Policy" in identity_provider_record["config"]:
         logger.info(
             f"Using Policy value from identity provider record {identity_provider} for user {input_username}"
         )
-        response_data["Role"] = identity_provider_record["config"]["Policy"]
+        response_data["Policy"] = identity_provider_record["config"]["Policy"]
     else:
         logger.info(
             f"No Policy value found in  user record for {input_username} or identity provider record {identity_provider}, skipping"

@@ -20,7 +20,6 @@ class KeycloakIdpModuleError(util.IdpModuleError):
 
 
 secret_cache = {}
-admin_token_cache = {}
 
 
 @tracer.capture_method
@@ -42,9 +41,9 @@ def build_ssl_context(ssl_verify, ssl_ca_secret_arn=None):
 
 
 @tracer.capture_method
-def keycloak_authenticate(base_url, realm, client_id, client_secret, username, password, ssl_ctx):
+def keycloak_authenticate(base_url, client_realm, client_id, client_secret, username, password, ssl_ctx):
     """Authenticate a user against Keycloak using the Resource Owner Password Credentials grant."""
-    url = f"{base_url}/realms/{realm}/protocol/openid-connect/token"
+    url = f"{base_url}/realms/{client_realm}/protocol/openid-connect/token"
     data = urllib.parse.urlencode({
         "grant_type": "password",
         "client_id": client_id,
@@ -59,8 +58,7 @@ def keycloak_authenticate(base_url, realm, client_id, client_secret, username, p
     req.add_header("Content-Type", "application/x-www-form-urlencoded")
 
     safe_params = {k: v for k, v in urllib.parse.parse_qs(data).items() if k not in ("password", "client_secret")}
-    logger.debug(f"Keycloak auth request: POST {url} params={safe_params}")
-
+    logger.info(f"Keycloak auth request: POST {url} params={safe_params}")
     try:
         with urllib.request.urlopen(req, context=ssl_ctx) as resp:
             resp_body = json.loads(resp.read())
@@ -82,13 +80,9 @@ def keycloak_authenticate(base_url, realm, client_id, client_secret, username, p
 
 
 @tracer.capture_method
-def get_admin_token(base_url, token_realm, client_id, client_secret, ssl_ctx):
-    """Obtain a service account token using client_credentials grant. Cached for 60 seconds."""
-    cached = util.fetch_cache(admin_token_cache, "admin_token", 60)
-    if cached is not None:
-        return cached
-
-    url = f"{base_url}/realms/{token_realm}/protocol/openid-connect/token"
+def get_admin_token(base_url, admin_realm, client_id, client_secret, ssl_ctx):
+    """Obtain a service account token using client_credentials grant."""
+    url = f"{base_url}/realms/{admin_realm}/protocol/openid-connect/token"
     data = urllib.parse.urlencode({
         "grant_type": "client_credentials",
         "client_id": client_id,
@@ -108,15 +102,14 @@ def get_admin_token(base_url, token_realm, client_id, client_secret, ssl_ctx):
             f"Failed to obtain Keycloak admin/service account token: HTTP {e.code}; Response: {error_body}"
         )
 
-    util.set_cache(admin_token_cache, "admin_token", token)
     return token
 
 
 @tracer.capture_method
-def get_keycloak_user(base_url, realm, username, admin_token, ssl_ctx):
+def get_keycloak_user(base_url, client_realm, username, admin_token, ssl_ctx):
     """Look up a user by exact username via the Keycloak Admin REST API."""
     params = urllib.parse.urlencode({"username": username, "exact": "true"})
-    url = f"{base_url}/admin/realms/{realm}/users?{params}"
+    url = f"{base_url}/admin/realms/{client_realm}/users?{params}"
 
     req = urllib.request.Request(url, method="GET")
     req.add_header("Authorization", f"Bearer {admin_token}")
@@ -153,6 +146,9 @@ def resolve_keycloak_attributes(user, attribute_map, ignore_missing):
     kc_attributes = user.get("attributes", {})
     resolved = {}
 
+    # Transfer Family properties that are expected to remain as lists even with a single value
+    list_valued_keys = {"PublicKeys"}
+
     for transfer_key, kc_key in attribute_map.items():
         # Check top-level user fields first, then custom attributes
         if kc_key in user:
@@ -161,7 +157,8 @@ def resolve_keycloak_attributes(user, attribute_map, ignore_missing):
             value = kc_attributes.get(kc_key, None)
 
         # Keycloak custom attributes are always lists; unwrap single values
-        if isinstance(value, list) and len(value) == 1 and transfer_key != "PublicKeys":
+        # unless the Transfer Family property is expected to be a list
+        if isinstance(value, list) and len(value) == 1 and transfer_key not in list_valued_keys:
             value = value[0]
         elif isinstance(value, list) and len(value) == 0:
             value = None
@@ -175,7 +172,7 @@ def resolve_keycloak_attributes(user, attribute_map, ignore_missing):
 
 
 @tracer.capture_method
-def apply_resolved_attributes(resolved_attributes, attribute_map, response_data, ignore_missing):
+def apply_resolved_attributes(resolved_attributes, attribute_map, response_data, ignore_missing, authn_method):
     """Apply resolved Keycloak attributes to the Transfer Family response data.
 
     Follows the same pattern as LDAP, Okta, and Entra modules.
@@ -205,6 +202,26 @@ def apply_resolved_attributes(resolved_attributes, attribute_map, response_data,
         else:
             raise KeycloakIdpModuleError(
                 f"Keycloak attribute '{attribute_map['Policy']}' for property 'Policy' was empty or missing. "
+                f"To ignore, use the ignore_missing_attributes setting in the identity provider config."
+            )
+
+    if "PublicKeys" in attribute_map:
+        if authn_method == util.AuthenticationMethod.PASSWORD:
+            logger.debug("Skipping PublicKeys attribute — not returned for password authentication.")
+        elif resolved_attributes["PublicKeys"] is not None:
+            keys = resolved_attributes["PublicKeys"]
+            if isinstance(keys, str):
+                keys = [keys]
+            logger.info(f"Applying {len(keys)} public key(s) from Keycloak user attributes")
+            response_data.setdefault("PublicKeys", [])
+            response_data["PublicKeys"].extend(keys)
+        elif ignore_missing:
+            logger.warning(
+                f"Keycloak attribute '{attribute_map['PublicKeys']}' for 'PublicKeys' was empty or missing. Skipping."
+            )
+        else:
+            raise KeycloakIdpModuleError(
+                f"Keycloak attribute '{attribute_map['PublicKeys']}' for property 'PublicKeys' was empty or missing. "
                 f"To ignore, use the ignore_missing_attributes setting in the identity provider config."
             )
 
@@ -245,13 +262,29 @@ def handle_auth(
 
     # Required config
     keycloak_base_url = identity_provider_config["base_url"]
-    keycloak_realm = identity_provider_config["realm"]
-    keycloak_client_id = identity_provider_config["client_id"]
+    keycloak_client_realm = identity_provider_config["client_realm"]
+
+    # password_auth_support defaults to true; when false, client_id is not required
+    password_auth_support = identity_provider_config.get("password_auth_support", True)
+
+    # Check if password authentication is disabled for this provider
+    if authn_method == util.AuthenticationMethod.PASSWORD and not password_auth_support:
+        raise KeycloakIdpModuleError(
+            "Password authentication is disabled for this identity provider. "
+            "Set 'password_auth_support' to true in the identity provider config to enable it."
+        )
+
+    # client_id is required for password auth; optional when password_auth_support is false
+    if password_auth_support:
+        keycloak_client_id = identity_provider_config["client_id"]
+    else:
+        keycloak_client_id = identity_provider_config.get("client_id", None)
 
     # Optional config
     keycloak_client_secret_arn = identity_provider_config.get("client_secret_arn", None)
-    keycloak_service_account_secret_arn = identity_provider_config.get("service_account_secret_arn", None)
-    keycloak_token_realm = identity_provider_config.get("token_realm", keycloak_realm)
+    keycloak_admin_client_id = identity_provider_config.get("admin_client_id", keycloak_client_id)
+    keycloak_admin_client_secret_arn = identity_provider_config.get("admin_client_secret_arn", None)
+    keycloak_admin_realm = identity_provider_config.get("admin_realm", keycloak_client_realm)
     keycloak_ssl_verify = identity_provider_config.get("ssl_verify", True)
     keycloak_ssl_ca_secret_arn = identity_provider_config.get("ssl_ca_secret_arn", None)
     keycloak_attributes = identity_provider_config.get("attributes", {})
@@ -262,14 +295,19 @@ def handle_auth(
     if keycloak_client_secret_arn:
         keycloak_client_secret = util.fetch_secret_cache(secret_cache, keycloak_client_secret_arn)
 
+    # Resolve admin client secret if stored in Secrets Manager
+    keycloak_admin_client_secret = None
+    if keycloak_admin_client_secret_arn:
+        keycloak_admin_client_secret = util.fetch_secret_cache(secret_cache, keycloak_admin_client_secret_arn)
+
     ssl_ctx = build_ssl_context(keycloak_ssl_verify, keycloak_ssl_ca_secret_arn)
 
     if authn_method == util.AuthenticationMethod.PASSWORD:
         # --- Password authentication: authenticate user directly via ROPC grant ---
-        logger.info(f"Attempting password authentication for user {parsed_username} against Keycloak realm {keycloak_realm}")
+        logger.info(f"Attempting password authentication for user {parsed_username} against Keycloak realm {keycloak_client_realm}")
         keycloak_authenticate(
             base_url=keycloak_base_url,
-            realm=keycloak_realm,
+            client_realm=keycloak_client_realm,
             client_id=keycloak_client_id,
             client_secret=keycloak_client_secret,
             username=parsed_username,
@@ -278,148 +316,120 @@ def handle_auth(
         )
         logger.info(f"Password authentication successful for user {parsed_username}")
 
-        # If attributes are configured, use admin API to retrieve them
-        if keycloak_attributes:
-            if keycloak_service_account_secret_arn is None:
-                logger.info(
-                    "Attributes configured but no service_account_secret_arn provided. "
-                    "Using client_credentials grant with the configured client to retrieve user attributes."
-                )
-                if keycloak_client_secret is None:
-                    raise KeycloakIdpModuleError(
-                        "Attributes are configured but neither service_account_secret_arn nor client_secret_arn is set. "
-                        "A service account or confidential client is required to query the Keycloak Admin API for user attributes."
-                    )
+        # Use admin API to verify account status and resolve attributes.
+        # Requires either admin_client_secret_arn or client_secret_arn to call the Admin API.
+        if keycloak_admin_client_secret_arn is not None or keycloak_client_secret is not None:
+            if keycloak_admin_client_secret_arn is not None:
+                logger.info("Using admin client credentials to call Keycloak Admin API.")
                 admin_token = get_admin_token(
                     base_url=keycloak_base_url,
-                    token_realm=keycloak_token_realm,
-                    client_id=keycloak_client_id,
-                    client_secret=keycloak_client_secret,
+                    admin_realm=keycloak_admin_realm,
+                    client_id=keycloak_admin_client_id,
+                    client_secret=keycloak_admin_client_secret,
                     ssl_ctx=ssl_ctx,
                 )
             else:
-                logger.info("Using service account credentials to retrieve user attributes from Keycloak Admin API.")
-                service_account = json.loads(
-                    util.fetch_secret_cache(secret_cache, keycloak_service_account_secret_arn)
-                )
+                logger.info("Using client credentials to call Keycloak Admin API.")
                 admin_token = get_admin_token(
                     base_url=keycloak_base_url,
-                    token_realm=keycloak_token_realm,
-                    client_id=service_account.get("client_id", keycloak_client_id),
-                    client_secret=service_account["client_secret"],
+                    admin_realm=keycloak_admin_realm,
+                    client_id=keycloak_client_id,
+                    client_secret=keycloak_client_secret,
                     ssl_ctx=ssl_ctx,
                 )
 
             kc_user = get_keycloak_user(
                 base_url=keycloak_base_url,
-                realm=keycloak_realm,
+                client_realm=keycloak_client_realm,
                 username=parsed_username,
                 admin_token=admin_token,
                 ssl_ctx=ssl_ctx,
             )
             logger.debug(f"Keycloak user object: {kc_user}")
 
-            # Check if user is enabled
+            # Always check if the account is enabled
             if not kc_user.get("enabled", True):
                 raise KeycloakIdpModuleError(
                     f"Account for user {parsed_username} is disabled in Keycloak. Failing authentication."
                 )
 
-            resolved = resolve_keycloak_attributes(
-                kc_user, keycloak_attributes, keycloak_ignore_missing_attributes
+            # Resolve and apply attributes if configured
+            if keycloak_attributes:
+                resolved = resolve_keycloak_attributes(
+                    kc_user, keycloak_attributes, keycloak_ignore_missing_attributes
+                )
+                logger.debug(f"Resolved Keycloak attributes: {resolved}")
+                apply_resolved_attributes(resolved, keycloak_attributes, response_data, keycloak_ignore_missing_attributes, authn_method)
+        else:
+            if keycloak_attributes:
+                raise KeycloakIdpModuleError(
+                    "Attributes are configured but neither admin_client_secret_arn nor client_secret_arn is set. "
+                    "A confidential client is required to query the Keycloak Admin API for user attributes."
+                )
+            logger.warning(
+                "No admin or client secret configured — skipping account status check and attribute lookup."
             )
-            logger.debug(f"Resolved Keycloak attributes: {resolved}")
-            apply_resolved_attributes(resolved, keycloak_attributes, response_data, keycloak_ignore_missing_attributes)
 
     elif authn_method == util.AuthenticationMethod.PUBLIC_KEY:
         from . import public_key
 
         # --- Public key authentication: use admin API to retrieve user and public keys ---
-        if keycloak_service_account_secret_arn is not None:
-            logger.info(
-                "Public key auth with service account configured. "
-                "Using service account to retrieve user details and public keys from Keycloak."
-            )
-            service_account = json.loads(
-                util.fetch_secret_cache(secret_cache, keycloak_service_account_secret_arn)
-            )
-            admin_token = get_admin_token(
+        if keycloak_admin_client_secret_arn is not None or keycloak_client_secret is not None:
+            if keycloak_admin_client_secret_arn is not None:
+                logger.info("Using admin client credentials to call Keycloak Admin API.")
+                admin_token = get_admin_token(
+                    base_url=keycloak_base_url,
+                    admin_realm=keycloak_admin_realm,
+                    client_id=keycloak_admin_client_id,
+                    client_secret=keycloak_admin_client_secret,
+                    ssl_ctx=ssl_ctx,
+                )
+            else:
+                logger.info("Using client credentials to call Keycloak Admin API.")
+                admin_token = get_admin_token(
+                    base_url=keycloak_base_url,
+                    admin_realm=keycloak_admin_realm,
+                    client_id=keycloak_client_id,
+                    client_secret=keycloak_client_secret,
+                    ssl_ctx=ssl_ctx,
+                )
+
+            kc_user = get_keycloak_user(
                 base_url=keycloak_base_url,
-                token_realm=keycloak_token_realm,
-                client_id=service_account.get("client_id", keycloak_client_id),
-                client_secret=service_account["client_secret"],
+                client_realm=keycloak_client_realm,
+                username=parsed_username,
+                admin_token=admin_token,
                 ssl_ctx=ssl_ctx,
             )
-        elif keycloak_client_secret is not None:
-            logger.info(
-                "Public key auth with client credentials. "
-                "Using client_credentials grant to retrieve user details and public keys from Keycloak."
-            )
-            admin_token = get_admin_token(
-                base_url=keycloak_base_url,
-                token_realm=keycloak_token_realm,
-                client_id=keycloak_client_id,
-                client_secret=keycloak_client_secret,
-                ssl_ctx=ssl_ctx,
-            )
+            logger.debug(f"Keycloak user object: {kc_user}")
+
+            # Always check if the account is enabled
+            if not kc_user.get("enabled", True):
+                raise KeycloakIdpModuleError(
+                    f"Account for user {parsed_username} is disabled in Keycloak. Failing authentication."
+                )
+
+            # Resolve and apply attributes if configured
+            if keycloak_attributes:
+                resolved = resolve_keycloak_attributes(
+                    kc_user, keycloak_attributes, keycloak_ignore_missing_attributes
+                )
+                logger.debug(f"Resolved Keycloak attributes: {resolved}")
+                apply_resolved_attributes(resolved, keycloak_attributes, response_data, keycloak_ignore_missing_attributes, authn_method)
         else:
-            logger.info(
-                "No service account or client secret configured. "
-                "Passing to public key auth module to use keys from user record."
-            )
-            response_data = public_key.handle_auth(
-                event=event,
-                parsed_username=parsed_username,
-                user_record=user_record,
-                identity_provider_record=identity_provider_record,
-                response_data=response_data,
-                authn_method=authn_method,
-            )
-            return response_data
-
-        kc_user = get_keycloak_user(
-            base_url=keycloak_base_url,
-            realm=keycloak_realm,
-            username=parsed_username,
-            admin_token=admin_token,
-            ssl_ctx=ssl_ctx,
-        )
-        logger.debug(f"Keycloak user object: {kc_user}")
-
-        # Check if user is enabled
-        if not kc_user.get("enabled", True):
-            raise KeycloakIdpModuleError(
-                f"Account for user {parsed_username} is disabled in Keycloak. Failing authentication."
+            if keycloak_attributes:
+                raise KeycloakIdpModuleError(
+                    "Attributes are configured but neither admin_client_secret_arn nor client_secret_arn is set. "
+                    "A confidential client is required to query the Keycloak Admin API for user attributes."
+                )
+            logger.warning(
+                "No admin or client secret configured — skipping account status check and attribute lookup. "
+                "Falling back to public key module for keys from user record."
             )
 
-        # Resolve attributes (including PublicKeys if mapped)
-        if keycloak_attributes:
-            resolved = resolve_keycloak_attributes(
-                kc_user, keycloak_attributes, keycloak_ignore_missing_attributes
-            )
-            logger.debug(f"Resolved Keycloak attributes: {resolved}")
-            apply_resolved_attributes(resolved, keycloak_attributes, response_data, keycloak_ignore_missing_attributes)
-
-        # Retrieve public keys from Keycloak user attributes
-        kc_user_attributes = kc_user.get("attributes", {})
-        public_keys_attr = identity_provider_config.get("public_key_attribute", "sshPublicKey")
-        kc_public_keys = kc_user_attributes.get(public_keys_attr, [])
-
-        if kc_public_keys:
-            logger.info(
-                f"Found {len(kc_public_keys)} public key(s) in Keycloak attribute '{public_keys_attr}' for user {parsed_username}"
-            )
-            if isinstance(kc_public_keys, str):
-                kc_public_keys = [kc_public_keys]
-            response_data.setdefault("PublicKeys", [])
-            response_data["PublicKeys"].extend(kc_public_keys)
-        else:
-            logger.info(
-                f"No public keys found in Keycloak attribute '{public_keys_attr}' for user {parsed_username}. "
-                f"Falling back to public key module for keys from user record."
-            )
-
-        # Always pass through the public_key module so it can merge keys from the user record config
+        # Pass through the public_key module as a fallback — if Keycloak returned keys,
+        # this is a no-op. If Keycloak returned no keys, this reads from the DynamoDB user record.
+        # If neither source has keys, public_key.handle_auth raises an error.
         response_data = public_key.handle_auth(
             event=event,
             parsed_username=parsed_username,
